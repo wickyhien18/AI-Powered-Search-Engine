@@ -1,0 +1,93 @@
+"""
+ingest.py — Đọc CSV bài báo BBC, chunk, embed qua Ollama, lưu vào Qdrant
+Chạy: python ingest.py
+"""
+
+import glob
+import pandas as pd
+
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_ollama import OllamaEmbeddings
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
+
+COLLECTION_NAME = "bbc_news"
+QDRANT_URL = "http://localhost:6333"
+EMBEDDING_MODEL = "nomic-embed-text"
+EMBEDDING_DIM = 768  # số chiều vector của nomic-embed-text
+
+
+def load_articles() -> list[Document]:
+    """Đọc CSV, convert mỗi dòng thành 1 Document (chưa chunk)."""
+    csv_path = glob.glob("./data/*.csv")[0]
+    df = pd.read_csv(csv_path)
+
+    documents = []
+    for idx, row in df.iterrows():
+        doc = Document(
+            page_content=row["text"],
+            metadata={
+                "article_id": int(idx),
+                "category": row["category"],
+            },
+        )
+        documents.append(doc)
+
+    print(f"Đã load {len(documents)} bài báo từ {csv_path}")
+    return documents
+
+
+def chunk_documents(documents: list[Document]) -> list[Document]:
+    """Cắt nhỏ từng bài báo thành các chunk vừa phải."""
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50,
+    )
+    chunks = splitter.split_documents(documents)
+    print(f"Sau khi chunk: {len(chunks)} chunk (từ {len(documents)} bài báo)")
+    return chunks
+
+
+def ensure_collection(client: QdrantClient):
+    """Tạo collection nếu chưa tồn tại — tránh lỗi khi chạy ingest.py nhiều lần."""
+    existing = [c.name for c in client.get_collections().collections]
+    if COLLECTION_NAME not in existing:
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
+        )
+        print(f"Đã tạo collection '{COLLECTION_NAME}'")
+    else:
+        print(f"Collection '{COLLECTION_NAME}' đã tồn tại, dùng lại")
+
+
+def main():
+    documents = load_articles()
+    chunks = chunk_documents(documents)
+
+    embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+
+    client = QdrantClient(url=QDRANT_URL)
+    ensure_collection(client)
+
+    vectorstore = QdrantVectorStore(
+        client=client,
+        collection_name=COLLECTION_NAME,
+        embedding=embeddings,
+    )
+
+    print("Đang embed và lưu vào Qdrant (có thể mất vài phút với CPU)...")
+    # Chia batch nhỏ để dễ theo dõi tiến độ và tránh gửi quá nhiều request cùng lúc tới Ollama
+    batch_size = 50
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i : i + batch_size]
+        vectorstore.add_documents(batch)
+        print(f"  Đã xử lý {min(i + batch_size, len(chunks))}/{len(chunks)} chunk")
+
+    print("Ingest hoàn tất.")
+
+
+if __name__ == "__main__":
+    main()
