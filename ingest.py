@@ -1,8 +1,3 @@
-"""
-ingest.py — Đọc CSV bài báo BBC, chunk, embed qua Ollama, lưu vào Qdrant
-Chạy: python ingest.py
-"""
-
 import glob
 import pandas as pd
 
@@ -17,7 +12,7 @@ from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME, EMBEDDING_DIM
 
 
 def load_articles() -> list[Document]:
-    """Đọc CSV, convert mỗi dòng thành 1 Document (chưa chunk)."""
+    """ Find .csv file then convert into DataFrame variable and then turn into list of Document"""
     csv_path = glob.glob("./data/*.csv")[0]
     df = pd.read_csv(csv_path)
 
@@ -37,10 +32,10 @@ def load_articles() -> list[Document]:
 
 
 def chunk_documents(documents: list[Document]) -> list[Document]:
-    """Cắt nhỏ từng bài báo thành các chunk vừa phải."""
+    """Split each article into reasonably sized chunks to enable searching that is sufficiently comprehensive, accurate and fast"""
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50,
+        chunk_size=500, # the max character length any one chunk can hold
+        chunk_overlap=50, # how many trailling character from previous chunk get copied into the start of the next one
     )
     chunks = splitter.split_documents(documents)
     print(f"Sau khi chunk: {len(chunks)} chunk (từ {len(documents)} bài báo)")
@@ -48,7 +43,7 @@ def chunk_documents(documents: list[Document]) -> list[Document]:
 
 
 def ensure_collection(client: QdrantClient):
-    """Tạo collection nếu chưa tồn tại — tránh lỗi khi chạy ingest.py nhiều lần."""
+    """Create new connection if not exist - prevent create many connection."""
     existing = [c.name for c in client.get_collections().collections]
     if COLLECTION_NAME not in existing:
         client.create_collection(
