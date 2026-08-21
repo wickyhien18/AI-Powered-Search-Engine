@@ -13,10 +13,7 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-COLLECTION_NAME = "bbc_news"
-QDRANT_URL = "http://localhost:6333"
-EMBEDDING_MODEL = "nomic-embed-text"
-EMBEDDING_DIM = 768  # số chiều vector của nomic-embed-text
+from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME, EMBEDDING_DIM
 
 
 def load_articles() -> list[Document]:

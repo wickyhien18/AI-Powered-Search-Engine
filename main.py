@@ -9,9 +9,7 @@ from pydantic import BaseModel
 from langchain_ollama import OllamaEmbeddings
 from qdrant_client import QdrantClient
 
-COLLECTION_NAME = "bbc_news"
-QDRANT_URL = "http://localhost:6333"
-EMBEDDING_MODEL = "nomic-embed-text"
+from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME
 
 app = FastAPI()
 
