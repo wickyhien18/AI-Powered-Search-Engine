@@ -48,8 +48,8 @@ def search(req: SearchRequest):
             {
                 "score": point.score,
                 "text": point.payload.get("page_content"),
-                "article_id": point.payload.get("article_id"),
-                "category": point.payload.get("category"),
+                "article_id": point.payload.get("metadata", {}).get("article_id"),
+                "category": point.payload.get("metadata", {}).get("category"),
             }
             for point in results
         ],
