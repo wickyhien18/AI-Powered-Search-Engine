@@ -4,6 +4,7 @@ Run: uvicorn main:app --reload
 """
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from langchain_ollama import OllamaEmbeddings
@@ -12,6 +13,16 @@ from qdrant_client import QdrantClient
 from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME
 
 app = FastAPI()
+
+# Without this, the browser blocks requests from the Next.js dev server
+# (localhost:3000) to this API (localhost:8000) — different ports count
+# as different origins as far as browser security is concerned.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Created once at startup, reused for every request — avoids reconnecting per request
 embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
