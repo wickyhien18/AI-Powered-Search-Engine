@@ -1,16 +1,31 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, FormEvent } from 'react'
 
 const API_URL = 'http://localhost:8000'
 
-export default function Page() {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+// This shape must match exactly what main.py's /search endpoint returns —
+// if main.py's response shape changes and this type isn't updated,
+// TypeScript will flag the mismatch at compile time instead of failing silently in the browser.
+interface SearchResult {
+  score: number
+  text: string
+  article_id: number
+  category: string
+}
 
-  async function handleSearch(e) {
+interface SearchResponse {
+  query: string
+  results: SearchResult[]
+}
+
+export default function Page() {
+  const [query, setQuery] = useState<string>('')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [loading, setLoading] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSearch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!query.trim()) return
 
@@ -28,12 +43,12 @@ export default function Page() {
         throw new Error(`Server responded with status ${response.status}`)
       }
 
-      const data = await response.json()
+      const data: SearchResponse = await response.json()
       setResults(data.results)
     } catch (err) {
       // Most common cause here: FastAPI (uvicorn) isn't running,
       // or CORS is blocking the request — check the browser console for the exact error.
-      setError(err.message)
+      setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
