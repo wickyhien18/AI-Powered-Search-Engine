@@ -1,4 +1,5 @@
 import glob
+import uuid
 import pandas as pd
 
 from langchain_core.documents import Document
@@ -42,6 +43,36 @@ def chunk_documents(documents: list[Document]) -> list[Document]:
     return chunks
 
 
+# Fixed, arbitrary namespace UUID — required by uuid5 to derive deterministic IDs.
+# It never changes; it's not a secret, just a seed constant.
+ID_NAMESPACE = uuid.UUID("12345678-1234-5678-1234-567812345678")
+
+
+def make_point_id(chunk: Document, index_in_article: int) -> str:
+    """
+    Derive a stable ID from the chunk's own content, instead of letting
+    Qdrant assign a random one. Same article_id + same chunk position +
+    same text -> always the same ID -> re-running ingest.py OVERWRITES
+    the existing point instead of inserting a duplicate.
+    """
+    article_id = chunk.metadata["article_id"]
+    unique_string = f"{article_id}_{index_in_article}_{chunk.page_content}"
+    return str(uuid.uuid5(ID_NAMESPACE, unique_string))
+
+
+def assign_point_ids(chunks: list[Document]) -> list[str]:
+    """Walk through chunks in order, tracking how many chunks each article_id has
+    seen so far, so each chunk gets a distinct, reproducible position index."""
+    seen_counts: dict[int, int] = {}
+    ids = []
+    for chunk in chunks:
+        article_id = chunk.metadata["article_id"]
+        index_in_article = seen_counts.get(article_id, 0)
+        ids.append(make_point_id(chunk, index_in_article))
+        seen_counts[article_id] = index_in_article + 1
+    return ids
+
+
 def ensure_collection(client: QdrantClient):
     """Create new connection if not exist - prevent create many connection."""
     existing = [c.name for c in client.get_collections().collections]
@@ -58,6 +89,7 @@ def ensure_collection(client: QdrantClient):
 def main():
     documents = load_articles()
     chunks = chunk_documents(documents)
+    point_ids = assign_point_ids(chunks)
 
     embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
 
@@ -75,7 +107,8 @@ def main():
     batch_size = 50
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
-        vectorstore.add_documents(batch)
+        batch_ids = point_ids[i : i + batch_size]
+        vectorstore.add_documents(batch, ids=batch_ids)
         print(f"  Đã xử lý {min(i + batch_size, len(chunks))}/{len(chunks)} chunk")
 
     print("Ingest hoàn tất.")
