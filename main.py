@@ -1,22 +1,17 @@
-"""
-main.py — FastAPI search API: embed query via Ollama, search Qdrant, return results
-Run: uvicorn main:app --reload
-"""
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from langchain_ollama import OllamaEmbeddings, ChatOllama
+from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
 from qdrant_client import QdrantClient
 
 from config import QDRANT_URL, EMBEDDING_MODEL, LLM_MODEL, COLLECTION_NAME
 
+SPARSE_MODEL_NAME = "Qdrant/bm25"
+
 app = FastAPI()
 
-# Without this, the browser blocks requests from the Next.js dev server
-# (localhost:3000) to this API (localhost:8000) — different ports count
-# as different origins as far as browser security is concerned.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -26,8 +21,19 @@ app.add_middleware(
 
 # Created once at startup, reused for every request — avoids reconnecting per request
 embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
 llm = ChatOllama(model=LLM_MODEL, temperature=0.2)
 client = QdrantClient(url=QDRANT_URL)
+
+vectorstore = QdrantVectorStore(
+    client=client,
+    collection_name=COLLECTION_NAME,
+    embedding=embeddings,
+    sparse_embedding=sparse_embeddings,
+    retrieval_mode=RetrievalMode.HYBRID,
+    vector_name="dense",
+    sparse_vector_name="sparse",
+)
 
 
 class SearchRequest(BaseModel):
@@ -42,21 +48,16 @@ class AskRequest(BaseModel):
 
 def retrieve_chunks(query: str, top_k: int):
     """Shared by /search and /ask — embed the query, fetch nearest chunks from Qdrant."""
-    query_vector = embeddings.embed_query(query)
-    points = client.query_points(
-        collection_name=COLLECTION_NAME,
-        query=query_vector,
-        limit=top_k,
-    ).points
+    results = vectorstore.similarity_search_with_score(query, k=top_k)
 
     return [
         {
-            "score": point.score,
-            "text": point.payload.get("page_content"),
-            "article_id": point.payload.get("metadata", {}).get("article_id"),
-            "category": point.payload.get("metadata", {}).get("category"),
+            "score": score,
+            "text": doc.page_content,
+            "article_id": doc.metadata.get("article_id"),
+            "category": doc.metadata.get("category"),
         }
-        for point in points
+        for doc, score in results
     ]
 
 
@@ -84,20 +85,20 @@ def ask(req: AskRequest):
         for c in chunks
     )
 
-    prompt = f"""Answer the question using ONLY the context below. If the context doesn't contain the answer, say so — do not make up information.
-
+    prompt = f"""Answer the question using ONLY the context below. 
+    If the context doesn't contain the answer, say so — do not make up information.
+ 
 Context:
 {context_block}
-
+ 
 Question: {req.query}
-
+ 
 Answer:"""
-
-    # Step 4: send the prompt to the LLM, get back a generated answer
+ 
     response = llm.invoke(prompt)
-
+ 
     return {
         "query": req.query,
         "answer": response.content,
-        "sources": chunks,  # so the frontend can show which chunks the answer was based on
+        "sources": chunks, 
     }
