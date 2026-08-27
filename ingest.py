@@ -107,7 +107,7 @@ def main():
         sparse_embedding=sparse_embeddings,
         retrieval_mode=RetrievalMode.HYBRID,
         vector_name="dense",
-        sparse_vector_name="sparse"
+        sparse_vector_name="sparse",
     )
 
     print("Đang embed và lưu vào Qdrant (có thể mất vài phút với CPU)...")
