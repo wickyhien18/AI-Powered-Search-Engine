@@ -5,12 +5,13 @@ import pandas as pd
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings
-from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, VectorParams, SparseVectorParams
 
 from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME, EMBEDDING_DIM
 
+SPARSE_MODEL_NAME = "Qdrant/bm25"
 
 def load_articles() -> list[Document]:
     """ Find .csv file then convert into DataFrame variable and then turn into list of Document"""
@@ -79,7 +80,8 @@ def ensure_collection(client: QdrantClient):
     if COLLECTION_NAME not in existing:
         client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
+            vectors_config={"dense": VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE)},
+            sparse_vectors_config={"sparse": SparseVectorParams()}
         )
         print(f"Đã tạo collection '{COLLECTION_NAME}'")
     else:
@@ -93,6 +95,8 @@ def main():
 
     embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
 
+    sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
+
     client = QdrantClient(url=QDRANT_URL)
     ensure_collection(client)
 
@@ -100,10 +104,13 @@ def main():
         client=client,
         collection_name=COLLECTION_NAME,
         embedding=embeddings,
+        sparse_embedding=sparse_embeddings,
+        retrieval_mode=RetrievalMode.HYBRID,
+        vector_name="dense",
+        sparse_vector_name="sparse"
     )
 
     print("Đang embed và lưu vào Qdrant (có thể mất vài phút với CPU)...")
-    # Chia batch nhỏ để dễ theo dõi tiến độ và tránh gửi quá nhiều request cùng lúc tới Ollama
     batch_size = 50
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
