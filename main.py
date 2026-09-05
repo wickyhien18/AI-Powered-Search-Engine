@@ -1,9 +1,11 @@
 from fastapi import FastAPI
+from typing import Literal
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
+from langchain_core.messages import HumanMessage, AIMessage
 from qdrant_client import QdrantClient
 
 from config import QDRANT_URL, EMBEDDING_MODEL, LLM_MODEL, COLLECTION_NAME
@@ -40,10 +42,15 @@ class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
 
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
 
 class AskRequest(BaseModel):
     query: str
     top_k: int = 5
+    history: list[ChatTurn] = []
 
 
 def retrieve_chunks(query: str, top_k: int):
@@ -85,11 +92,13 @@ def ask(req: AskRequest):
         for c in chunks
     )
 
-    prompt = f"""Answer the question using ONLY the information in the context below.
+    current_turn_prompt = f"""Answer the question using ONLY the information in the context below.
 The answer may not appear as one single sentence — combine relevant details from multiple sections if needed.
 Only say the context doesn't contain the answer if NONE of the sections are relevant at all.
-Do not add outside information.
-
+Do not add outside information. If the question refers back to something from earlier in our
+conversation (e.g. "that", "it", "the one you mentioned"), use the conversation history to
+understand what is being referred to.
+ 
 Context:
 {context_block}
  
@@ -97,7 +106,16 @@ Question: {req.query}
  
 Answer:"""
  
-    response = llm.invoke(prompt)
+    messages = []
+    for turn in req.history:
+        if turn.role == "user":
+            messages.append(HumanMessage(content=turn.content))
+        else:
+            messages.append(AIMessage(content=turn.content))
+    messages.append(HumanMessage(content=current_turn_prompt))
+ 
+    response = llm.invoke(messages)
+
  
     return {
         "query": req.query,
