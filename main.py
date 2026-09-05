@@ -22,7 +22,7 @@ app.add_middleware(
 # Created once at startup, reused for every request — avoids reconnecting per request
 embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
 sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
-llm = ChatOllama(model=LLM_MODEL, temperature=0.2)
+llm = ChatOllama(model=LLM_MODEL, temperature=0.2, num_predict=256)
 client = QdrantClient(url=QDRANT_URL)
 
 vectorstore = QdrantVectorStore(
@@ -85,9 +85,11 @@ def ask(req: AskRequest):
         for c in chunks
     )
 
-    prompt = f"""Answer the question using ONLY the context below. 
-    If the context doesn't contain the answer, say so — do not make up information.
- 
+    prompt = f"""Answer the question using ONLY the information in the context below.
+The answer may not appear as one single sentence — combine relevant details from multiple sections if needed.
+Only say the context doesn't contain the answer if NONE of the sections are relevant at all.
+Do not add outside information.
+
 Context:
 {context_block}
  
