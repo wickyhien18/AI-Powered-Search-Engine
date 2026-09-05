@@ -3,14 +3,19 @@
 import { useState, FormEvent } from "react";
 import { API_URL } from "../config/env";
 
-// This shape must match exactly what main.py's /ask endpoint returns —
-// if main.py's response shape changes and this type isn't updated,
-// TypeScript will flag the mismatch at compile time instead of failing silently in the browser.
 interface SourceChunk {
   score: number;
   text: string;
   article_id: number;
   category: string;
+}
+
+// One turn in the visible conversation. "sources" only ever exists on
+// assistant turns — a user turn never has retrieval results attached.
+interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+  sources?: SourceChunk[];
 }
 
 interface AskResponse {
@@ -21,8 +26,7 @@ interface AskResponse {
 
 export default function Page() {
   const [query, setQuery] = useState<string>("");
-  const [answer, setAnswer] = useState<string | null>(null);
-  const [sources, setSources] = useState<SourceChunk[]>([]);
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,15 +34,28 @@ export default function Page() {
     e.preventDefault();
     if (!query.trim()) return;
 
+    const userTurn: ChatTurn = { role: "user", content: query };
+
+    // Show the user's own message immediately, before the network call resolves —
+    // this is why we build `updatedTurns` here instead of waiting for the response.
+    const updatedTurns = [...turns, userTurn];
+    setTurns(updatedTurns);
+    setQuery("");
     setLoading(true);
     setError(null);
-    setAnswer(null);
 
     try {
       const response = await fetch(`${API_URL}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, top_k: 5 }),
+        body: JSON.stringify({
+          query: userTurn.content,
+          top_k: 5,
+          // Send everything EXCEPT the turn we just added locally — the backend's
+          // `history` field means "everything before this question", and the
+          // current question is sent separately as `query`.
+          history: turns.map((t) => ({ role: t.role, content: t.content })),
+        }),
       });
 
       if (!response.ok) {
@@ -46,11 +63,14 @@ export default function Page() {
       }
 
       const data: AskResponse = await response.json();
-      setAnswer(data.answer);
-      setSources(data.sources);
+
+      const assistantTurn: ChatTurn = {
+        role: "assistant",
+        content: data.answer,
+        sources: data.sources,
+      };
+      setTurns([...updatedTurns, assistantTurn]);
     } catch (err) {
-      // Most common cause here: FastAPI (uvicorn) isn't running,
-      // or CORS is blocking the request — check the browser console for the exact error.
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
@@ -59,74 +79,119 @@ export default function Page() {
 
   return (
     <div
-      style={{ maxWidth: 700, margin: "40px auto", fontFamily: "sans-serif" }}
+      style={{
+        maxWidth: 700,
+        margin: "40px auto",
+        fontFamily: "sans-serif",
+        background: "#1a1a1a",
+        color: "#e0e0e0",
+        minHeight: "100vh",
+        padding: "0 16px",
+      }}
     >
       <h1>AI Search Engine</h1>
 
-      <form onSubmit={handleAsk} style={{ display: "flex", gap: 8 }}>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ask a question about BBC news articles..."
-          style={{ flex: 1, padding: 8, fontSize: 16 }}
-        />
-        <button
-          type="submit"
-          disabled={loading}
-          style={{ padding: "8px 16px" }}
-        >
-          {loading ? "Thinking..." : "Ask"}
-        </button>
-      </form>
+      <div
+        style={{
+          marginTop: 24,
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        {turns.map((turn, i) => (
+          <div key={i}>
+            {turn.role === "user" ? (
+              <div style={{ fontWeight: 600 }}>You: {turn.content}</div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    padding: 16,
+                    background: "#2a2a2a",
+                    borderRadius: 8,
+                    lineHeight: 1.5,
+                    border: "1px solid #3a3a3a",
+                  }}
+                >
+                  {turn.content}
+                </div>
+                {turn.sources && turn.sources.length > 0 && (
+                  <details style={{ marginTop: 8, fontSize: 13 }}>
+                    <summary style={{ cursor: "pointer", color: "#999" }}>
+                      Sources ({turn.sources.length})
+                    </summary>
+                    {turn.sources.map((s, j) => (
+                      <div
+                        key={j}
+                        style={{
+                          border: "1px solid #3a3a3a",
+                          borderRadius: 6,
+                          padding: 10,
+                          marginTop: 8,
+                          background: "#222",
+                        }}
+                      >
+                        <div style={{ color: "#999", marginBottom: 4 }}>
+                          category: {s.category} · article #{s.article_id} ·
+                          score: {s.score.toFixed(3)}
+                        </div>
+                        <div>{s.text}</div>
+                      </div>
+                    ))}
+                  </details>
+                )}
+              </>
+            )}
+          </div>
+        ))}
+      </div>
 
-      {/* The LLM call is slow on CPU-only hardware — this note sets expectations
-          instead of letting the UI look frozen during a 30+ second wait. */}
       {loading && (
-        <p style={{ color: "#888", marginTop: 16, fontSize: 14 }}>
-          Generating answer locally — this can take up to a minute on CPU-only
+        <p style={{ color: "#999", marginTop: 16, fontSize: 14 }}>
+          Generating answer locally — this can take a while on CPU-only
           hardware.
         </p>
       )}
 
-      {error && <p style={{ color: "red", marginTop: 16 }}>Error: {error}</p>}
+      {error && (
+        <p style={{ color: "#ff6b6b", marginTop: 16 }}>Error: {error}</p>
+      )}
 
-      {answer && (
-        <div
+      <form
+        onSubmit={handleAsk}
+        style={{ display: "flex", gap: 8, marginTop: 24 }}
+      >
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Ask a question — follow-ups are understood..."
           style={{
-            marginTop: 24,
-            padding: 16,
-            background: "#f5f5f5",
-            borderRadius: 8,
-            lineHeight: 1.5,
+            flex: 1,
+            padding: 8,
+            fontSize: 16,
+            background: "#2a2a2a",
+            color: "#e0e0e0",
+            border: "1px solid #3a3a3a",
+            borderRadius: 4,
+          }}
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            padding: "8px 16px",
+            background: "#3a3a3a",
+            color: "#e0e0e0",
+            border: "1px solid #4a4a4a",
+            borderRadius: 4,
+            cursor: "pointer",
           }}
         >
-          {answer}
-        </div>
-      )}
-
-      {sources.length > 0 && (
-        <div style={{ marginTop: 24 }}>
-          <h3 style={{ fontSize: 14, color: "#666" }}>Sources</h3>
-          {sources.map((s, i) => (
-            <div
-              key={i}
-              style={{
-                border: "1px solid #ddd",
-                borderRadius: 6,
-                padding: 12,
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
-                category: {s.category} · article #{s.article_id} · score:{" "}
-                {s.score.toFixed(3)}
-              </div>
-              <div style={{ fontSize: 14 }}>{s.text}</div>
-            </div>
-          ))}
-        </div>
-      )}
+          {loading ? "Thinking..." : "Ask"}
+        </button>
+      </form>
     </div>
   );
 }
