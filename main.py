@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from qdrant_client import QdrantClient
 from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-from config import QDRANT_URL, EMBEDDING_MODEL, LLM_MODEL, COLLECTION_NAME
+from config import QDRANT_URL, EMBEDDING_MODEL, LLM_MODEL, COLLECTION_NAME, ENABLE_RERANK
 
 SPARSE_MODEL_NAME = "Qdrant/bm25"  # must match the one used in ingest.py
 RERANK_MODEL_NAME = "Xenova/ms-marco-MiniLM-L-6-v2"
@@ -39,7 +39,11 @@ sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
 # score. This is slower per-pair (can't precompute chunk vectors in advance
 # like Qdrant does), which is exactly why it only runs on a small shortlist
 # AFTER retrieval, never on the full 7583-chunk collection.
-reranker = TextCrossEncoder(model_name=RERANK_MODEL_NAME)
+#
+# Only loaded when ENABLE_RERANK=true — skips downloading/loading this model
+# entirely when rerank is off, since it currently isn't reliable on THIS
+# dataset's stripped/lowercased chunk text (see config.py comment).
+reranker = TextCrossEncoder(model_name=RERANK_MODEL_NAME) if ENABLE_RERANK else None
 
 # num_predict caps how many tokens the model is allowed to generate.
 # Without this, llama3 can ramble past what's actually needed, and every
@@ -79,6 +83,20 @@ class AskRequest(BaseModel):
 
 
 def retrieve_chunks(query: str, top_k: int):
+    if not ENABLE_RERANK:
+        # Default path — the proven hybrid RRF ranking from Giai đoạn 8/11,
+        # already validated by evaluate.py. No cross-encoder involved at all.
+        results = vectorstore.similarity_search_with_score(query, k=top_k)
+        return [
+            {
+                "score": score,
+                "text": doc.page_content,
+                "article_id": doc.metadata.get("article_id"),
+                "category": doc.metadata.get("category"),
+            }
+            for doc, score in results
+        ]
+
     # Step 1 — cast a WIDER net than needed (RERANK_CANDIDATE_POOL, not top_k).
     # Hybrid search (RRF) is good at "roughly relevant fast", not perfectly
     # ordered — the reranker's job is to fix the ORDER of these candidates.
@@ -102,6 +120,13 @@ def retrieve_chunks(query: str, top_k: int):
     # Drop anything below the relevance threshold BEFORE cutting to top_k —
     # this is what fixes the "forced 5th irrelevant source" problem: if only
     # 3 candidates actually clear the bar, we return 3, not 5 padded with junk.
+    #
+    # KNOWN ISSUE (see config.py, ENABLE_RERANK comment): on this dataset's
+    # stripped/lowercased text, the cross-encoder's absolute scores are NOT
+    # reliably calibrated — an irrelevant chunk has scored HIGHER than a
+    # genuinely relevant one in testing. Keep this threshold logic in place
+    # for whenever ingest.py is updated to preserve natural-language text,
+    # but do not trust it blindly while ENABLE_RERANK is manually turned on.
     relevant_candidates = [pair for pair in scored_candidates if pair[1] >= RERANK_MIN_SCORE]
     top_candidates = relevant_candidates[:top_k]
 
