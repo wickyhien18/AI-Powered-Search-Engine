@@ -16,6 +16,11 @@ RERANK_MODEL_NAME = "Xenova/ms-marco-MiniLM-L-6-v2"
 # Retrieve more candidates than we actually need, so the reranker has real
 # material to sort through — reranking a pool of 5 down to 5 does nothing.
 RERANK_CANDIDATE_POOL = 15
+# ms-marco-MiniLM cross-encoders output raw scores, NOT a 0-1 probability —
+# negative scores mean "the model itself thinks this is not relevant".
+# 0 is a reasonable cutoff: keep only chunks the cross-encoder actually
+# considers relevant, rather than always force-filling exactly top_k slots.
+RERANK_MIN_SCORE = 0.0
 
 app = FastAPI()
 
@@ -93,7 +98,12 @@ def retrieve_chunks(query: str, top_k: int):
     # judges it more directly relevant once it reads query and chunk together.
     scored_candidates = list(zip(candidates, rerank_scores))
     scored_candidates.sort(key=lambda pair: pair[1], reverse=True)
-    top_candidates = scored_candidates[:top_k]
+
+    # Drop anything below the relevance threshold BEFORE cutting to top_k —
+    # this is what fixes the "forced 5th irrelevant source" problem: if only
+    # 3 candidates actually clear the bar, we return 3, not 5 padded with junk.
+    relevant_candidates = [pair for pair in scored_candidates if pair[1] >= RERANK_MIN_SCORE]
+    top_candidates = relevant_candidates[:top_k]
 
     return [
         {
