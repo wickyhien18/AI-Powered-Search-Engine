@@ -1,14 +1,12 @@
 """
-evaluate.py — Đo chất lượng retrieval bằng golden set (query đã biết đáp án đúng).
-Chạy: python evaluate.py
+evaluate.py — Đo chất lượng retrieval bằng golden set (query đã biết đáp án đúng),
+tính điểm RIÊNG theo từng nhóm loại câu hỏi (proper_noun / paraphrase / general)
+để biết chính xác hybrid mạnh/yếu ở loại câu hỏi nào, thay vì 1 con số gộp chung.
 
-Đo 2 chỉ số chuẩn ngành Information Retrieval:
-- Recall@k: trong top-k kết quả trả về, có bao nhiêu % câu hỏi tìm được ÍT NHẤT 1
-  article đúng như kỳ vọng. Đo "có tìm ra được không", không quan tâm thứ hạng.
-- MRR (Mean Reciprocal Rank): trung bình của 1/(vị_trí article đúng đầu tiên xuất hiện).
-  Đo "tìm ra đúng NHANH tới đâu" — article đúng đứng #1 thì tốt hơn đứng #5, dù cả
-  2 đều tính là "recall thành công".
+Chạy: python evaluate.py
 """
+
+from collections import defaultdict
 
 from langchain_ollama import OllamaEmbeddings
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
@@ -19,25 +17,21 @@ from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME
 SPARSE_MODEL_NAME = "Qdrant/bm25"
 TOP_K = 5
 
-# Golden set — mỗi query đi kèm 1 tập article_id được coi là "đúng".
-# Đây là bộ tự xây dựa trên các case đã tự tay xác minh trong quá trình phát triển —
-# không phải nhãn khách quan tuyệt đối, nhưng đủ tin cậy vì đã đọc và xác nhận nội dung thật.
+# Golden set — đáp án đã được TỰ TAY xác nhận qua label_helper.py, đọc thật nội
+# dung từng bài để quyết định, không phải suy đoán từ tên bài.
 GOLDEN_SET = [
-    {
-        "query": "kapranos",
-        "expected_article_ids": {233, 386},
-        "note": "Tên riêng hiếm — case chứng minh giá trị của sparse/hybrid search",
-    },
-    {
-        "query": "why are musicians protesting",
-        "expected_article_ids": {0, 2076},
-        "note": "Câu hỏi ngữ nghĩa — 2 chủ đề khác nhau (visa, file-sharing)",
-    },
-    {
-        "query": "movie release delayed",
-        "expected_article_ids": set(),  # để trống nếu chưa xác minh đáp án cụ thể — script sẽ bỏ qua khi tính điểm
-        "note": "Case paraphrase — cần tự xác minh article_id đúng trước khi đưa vào chấm điểm",
-    },
+    {"query": "kapranos", "expected_article_ids": {233, 386}, "category": "proper_noun"},
+    {"query": "u2", "expected_article_ids": {371, 259, 1, 385, 226, 76}, "category": "proper_noun"},
+    {"query": "napster", "expected_article_ids": {1844, 1891}, "category": "proper_noun"},
+
+    {"query": "why are musicians protesting", "expected_article_ids": {0, 2076}, "category": "paraphrase"},
+    {"query": "movie release delayed", "expected_article_ids": {305, 38, 365}, "category": "paraphrase"},
+    {"query": "illegal downloading lawsuits", "expected_article_ids": {1977, 2166, 2220, 1989}, "category": "paraphrase"},
+    {"query": "government funding for the arts", "expected_article_ids": {386, 1556}, "category": "paraphrase"},
+
+    {"query": "latest technology gadgets", "expected_article_ids": {2199, 1920, 2066, 1940, 2169, 2131, 1872}, "category": "general"},
+    {"query": "who won the australian open tennis title", "expected_article_ids": {1002}, "category": "general"},
+    {"query": "eu stability pact deficit rules changed", "expected_article_ids": {1533, 854}, "category": "general"},
 ]
 
 
@@ -57,9 +51,6 @@ def build_vectorstore(retrieval_mode: RetrievalMode) -> QdrantVectorStore:
             sparse_vector_name="sparse",
         )
     else:
-        # DENSE mode reuses the same "dense" named vector, just skips the sparse side —
-        # this lets us compare hybrid vs dense-only on the EXACT same stored data,
-        # instead of guessing at the difference.
         return QdrantVectorStore(
             client=client,
             collection_name=COLLECTION_NAME,
@@ -69,56 +60,61 @@ def build_vectorstore(retrieval_mode: RetrievalMode) -> QdrantVectorStore:
         )
 
 
+def score_one_query(vectorstore, case):
+    results = vectorstore.similarity_search(case["query"], k=TOP_K)
+    retrieved_ids = [doc.metadata.get("article_id") for doc in results]
+
+    hit = any(rid in case["expected_article_ids"] for rid in retrieved_ids)
+    correct_count = sum(1 for rid in retrieved_ids if rid in case["expected_article_ids"])
+    precision = correct_count / len(retrieved_ids) if retrieved_ids else 0
+    rank = next(
+        (i + 1 for i, rid in enumerate(retrieved_ids) if rid in case["expected_article_ids"]),
+        None,
+    )
+    reciprocal_rank = 1 / rank if rank else 0
+
+    return {
+        "query": case["query"],
+        "retrieved_ids": retrieved_ids,
+        "hit": hit,
+        "precision": precision,
+        "reciprocal_rank": reciprocal_rank,
+        "rank": rank,
+    }
+
+
+def print_group_summary(group_name, scored_cases):
+    n = len(scored_cases)
+    recall = sum(1 for c in scored_cases if c["hit"]) / n
+    mrr = sum(c["reciprocal_rank"] for c in scored_cases) / n
+    precision = sum(c["precision"] for c in scored_cases) / n
+    print(f"    [{group_name}] n={n} | Recall@{TOP_K}={recall:.2f} | MRR={mrr:.3f} | Precision@{TOP_K}={precision:.2f}")
+
+
 def evaluate(vectorstore: QdrantVectorStore, label: str):
     print(f"\n=== {label} ===")
 
-    recall_hits = 0
-    reciprocal_ranks = []
-    precisions = []
-    scored_queries = 0
+    by_category = defaultdict(list)
 
     for case in GOLDEN_SET:
         if not case["expected_article_ids"]:
             print(f"  [bỏ qua] \"{case['query']}\" — chưa có expected_article_ids")
             continue
 
-        scored_queries += 1
-        results = vectorstore.similarity_search(case["query"], k=TOP_K)
-        retrieved_ids = [doc.metadata.get("article_id") for doc in results]
+        scored = score_one_query(vectorstore, case)
+        by_category[case["category"]].append(scored)
 
-        # Recall@k: có ít nhất 1 ID đúng nằm trong top-k không?
-        hit = any(rid in case["expected_article_ids"] for rid in retrieved_ids)
-        if hit:
-            recall_hits += 1
+        status = f"hit @ rank {scored['rank']}" if scored["rank"] else "MISS"
+        print(f"  ({case['category']}) \"{case['query']}\" → {scored['retrieved_ids']} → {status}, precision={scored['precision']:.2f}")
 
-        # Precision@k: trong k kết quả trả về, bao nhiêu % thực sự nằm trong đáp án đúng?
-        # Khác Recall — Recall chỉ cần "có ít nhất 1 đúng", Precision đo "cả 5 cái có
-        # bao nhiêu cái rác lẫn vào". 2 hệ thống có thể Recall bằng nhau nhưng
-        # Precision khác hẳn nếu 1 bên lẫn thêm kết quả không liên quan.
-        correct_count = sum(1 for rid in retrieved_ids if rid in case["expected_article_ids"])
-        precisions.append(correct_count / len(retrieved_ids))
+    print()
+    all_scored = []
+    for category, scored_cases in by_category.items():
+        print_group_summary(category, scored_cases)
+        all_scored.extend(scored_cases)
 
-        # MRR: tìm vị trí (1-indexed) của kết quả đúng ĐẦU TIÊN
-        rank = next(
-            (i + 1 for i, rid in enumerate(retrieved_ids) if rid in case["expected_article_ids"]),
-            None,
-        )
-        reciprocal_ranks.append(1 / rank if rank else 0)
-
-        status = f"hit @ rank {rank}" if rank else "MISS"
-        print(f"  \"{case['query']}\" → article_ids trả về: {retrieved_ids} → {status}, precision@{TOP_K}={correct_count}/{len(retrieved_ids)}")
-
-    if scored_queries == 0:
-        print("  Không có query nào đủ dữ liệu để chấm điểm.")
-        return
-
-    recall_at_k = recall_hits / scored_queries
-    mrr = sum(reciprocal_ranks) / scored_queries
-    avg_precision = sum(precisions) / scored_queries
-
-    print(f"\n  Recall@{TOP_K}: {recall_at_k:.2f} ({recall_hits}/{scored_queries} query tìm đúng)")
-    print(f"  MRR: {mrr:.3f}")
-    print(f"  Precision@{TOP_K} (trung bình): {avg_precision:.2f}")
+    if all_scored:
+        print_group_summary("TỔNG (mọi nhóm gộp lại)", all_scored)
 
 
 if __name__ == "__main__":
