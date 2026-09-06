@@ -74,6 +74,7 @@ def evaluate(vectorstore: QdrantVectorStore, label: str):
 
     recall_hits = 0
     reciprocal_ranks = []
+    precisions = []
     scored_queries = 0
 
     for case in GOLDEN_SET:
@@ -90,6 +91,13 @@ def evaluate(vectorstore: QdrantVectorStore, label: str):
         if hit:
             recall_hits += 1
 
+        # Precision@k: trong k kết quả trả về, bao nhiêu % thực sự nằm trong đáp án đúng?
+        # Khác Recall — Recall chỉ cần "có ít nhất 1 đúng", Precision đo "cả 5 cái có
+        # bao nhiêu cái rác lẫn vào". 2 hệ thống có thể Recall bằng nhau nhưng
+        # Precision khác hẳn nếu 1 bên lẫn thêm kết quả không liên quan.
+        correct_count = sum(1 for rid in retrieved_ids if rid in case["expected_article_ids"])
+        precisions.append(correct_count / len(retrieved_ids))
+
         # MRR: tìm vị trí (1-indexed) của kết quả đúng ĐẦU TIÊN
         rank = next(
             (i + 1 for i, rid in enumerate(retrieved_ids) if rid in case["expected_article_ids"]),
@@ -98,7 +106,7 @@ def evaluate(vectorstore: QdrantVectorStore, label: str):
         reciprocal_ranks.append(1 / rank if rank else 0)
 
         status = f"hit @ rank {rank}" if rank else "MISS"
-        print(f"  \"{case['query']}\" → article_ids trả về: {retrieved_ids} → {status}")
+        print(f"  \"{case['query']}\" → article_ids trả về: {retrieved_ids} → {status}, precision@{TOP_K}={correct_count}/{len(retrieved_ids)}")
 
     if scored_queries == 0:
         print("  Không có query nào đủ dữ liệu để chấm điểm.")
@@ -106,9 +114,11 @@ def evaluate(vectorstore: QdrantVectorStore, label: str):
 
     recall_at_k = recall_hits / scored_queries
     mrr = sum(reciprocal_ranks) / scored_queries
+    avg_precision = sum(precisions) / scored_queries
 
     print(f"\n  Recall@{TOP_K}: {recall_at_k:.2f} ({recall_hits}/{scored_queries} query tìm đúng)")
     print(f"  MRR: {mrr:.3f}")
+    print(f"  Precision@{TOP_K} (trung bình): {avg_precision:.2f}")
 
 
 if __name__ == "__main__":
