@@ -1,86 +1,89 @@
-'use client'
+"use client";
 
-import { useState, useRef, useEffect, FormEvent } from 'react'
-import { API_URL } from '../config/env'
+import { useState, useRef, useEffect, FormEvent } from "react";
+import { API_URL } from "../config/env";
 
 interface SourceChunk {
-  score: number
-  text: string
-  article_id: number
-  category: string
+  score: number;
+  text: string;
+  article_id: number;
+  category: string;
 }
 
 interface ChatTurn {
-  role: 'user' | 'assistant'
-  content: string
-  sources?: SourceChunk[]
+  role: "user" | "assistant";
+  content: string;
+  sources?: SourceChunk[];
 }
 
 interface AskResponse {
-  query: string
-  answer: string
-  sources: SourceChunk[]
+  query: string;
+  answer: string;
+  sources: SourceChunk[];
 }
 
 // Pulled straight from the golden set in evaluate.py — these are the exact
 // queries already verified against known-correct article_ids, so clicking
 // one here demonstrates a case that's actually been measured, not a random example.
 const QUICK_PROMPTS = [
-  'kapranos',
-  'why are musicians protesting',
-  'movie release delayed',
-]
+  "kapranos",
+  "why are musicians protesting",
+  "movie release delayed",
+];
 
 export default function Page() {
-  const [query, setQuery] = useState<string>('')
-  const [turns, setTurns] = useState<ChatTurn[]>([])
-  const [loading, setLoading] = useState<boolean>(false)
-  const [error, setError] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [query, setQuery] = useState<string>("");
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to the newest turn whenever the conversation grows —
   // without this, a long conversation would stay scrolled at the top.
   useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [turns, loading])
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [turns, loading]);
 
   async function runQuery(text: string) {
-    if (!text.trim() || loading) return
+    if (!text.trim() || loading) return;
 
-    const userTurn: ChatTurn = { role: 'user', content: text }
-    const updatedTurns = [...turns, userTurn]
-    setTurns(updatedTurns)
-    setQuery('')
-    setLoading(true)
-    setError(null)
+    const userTurn: ChatTurn = { role: "user", content: text };
+    const updatedTurns = [...turns, userTurn];
+    setTurns(updatedTurns);
+    setQuery("");
+    setLoading(true);
+    setError(null);
 
     try {
       const response = await fetch(`${API_URL}/ask`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: text,
           top_k: 5,
           history: turns.map((t) => ({ role: t.role, content: t.content })),
         }),
-      })
+      });
 
       if (!response.ok) {
-        throw new Error(`Server responded with status ${response.status}`)
+        throw new Error(`Server responded with status ${response.status}`);
       }
 
-      const data: AskResponse = await response.json()
-      setTurns([...updatedTurns, { role: 'assistant', content: data.answer, sources: data.sources }])
+      const data: AskResponse = await response.json();
+      setTurns([
+        ...updatedTurns,
+        { role: "assistant", content: data.answer, sources: data.sources },
+      ]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    runQuery(query)
+    e.preventDefault();
+    runQuery(query);
   }
 
   return (
@@ -98,7 +101,11 @@ export default function Page() {
         <div className="sidebar-quick-prompts">
           <div className="sidebar-label">Verified queries</div>
           {QUICK_PROMPTS.map((p) => (
-            <button key={p} className="quick-prompt" onClick={() => runQuery(p)}>
+            <button
+              key={p}
+              className="quick-prompt"
+              onClick={() => runQuery(p)}
+            >
               {p}
             </button>
           ))}
@@ -116,7 +123,7 @@ export default function Page() {
           ) : (
             <div className="chat-inner">
               {turns.map((turn, i) =>
-                turn.role === 'user' ? (
+                turn.role === "user" ? (
                   <div key={i} className="turn-user">
                     <div className="label">query</div>
                     <div className="content">{turn.content}</div>
@@ -131,8 +138,10 @@ export default function Page() {
                         {turn.sources.map((s, j) => (
                           <div key={j} className="source-row">
                             <div className="source-meta">
-                              article #{s.article_id} · {s.category} · score{' '}
-                              <span className="score">{s.score.toFixed(3)}</span>
+                              article #{s.article_id} · {s.category} · score{" "}
+                              <span className="score">
+                                {s.score.toFixed(3)}
+                              </span>
                             </div>
                             <div>{s.text}</div>
                           </div>
@@ -140,9 +149,14 @@ export default function Page() {
                       </details>
                     )}
                   </div>
-                )
+                ),
               )}
-              {loading && <div className="loading-line">retrieving and generating — may take a while on CPU-only hardware...</div>}
+              {loading && (
+                <div className="loading-line">
+                  retrieving and generating — may take a while on CPU-only
+                  hardware...
+                </div>
+              )}
               {error && <div className="error-line">Error: {error}</div>}
               <div ref={scrollRef} />
             </div>
@@ -158,11 +172,11 @@ export default function Page() {
               placeholder="Ask about the archive..."
             />
             <button type="submit" disabled={loading}>
-              {loading ? 'Asking' : 'Ask'}
+              {loading ? "Asking" : "Ask"}
             </button>
           </form>
         </div>
       </div>
     </div>
-  )
+  );
 }
