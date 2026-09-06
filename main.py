@@ -67,6 +67,42 @@ def retrieve_chunks(query: str, top_k: int):
         for doc, score in results
     ]
 
+def rewrite_query_with_history(query: str, history: list[ChatTurn]) -> str:
+    """
+    Turn a context-dependent follow-up ("which category does that belong to?")
+    into a standalone question that makes sense on its own ("which category
+    does the article about musicians protesting visa costs belong to?").
+ 
+    This is a SEPARATE, small LLM call that runs BEFORE retrieval — its only
+    job is producing better search text, it never sees the Qdrant results and
+    its output is never shown to the user directly.
+    """
+    if not history:
+        # First turn in a conversation has nothing to rewrite against — skip
+        # the extra LLM call entirely (saves time, and there's nothing to fix).
+        return query
+ 
+    history_text = "\n".join(
+        f"{'User' if turn.role == 'user' else 'Assistant'}: {turn.content}"
+        for turn in history
+    )
+ 
+    rewrite_prompt = f"""Given this conversation history and a follow-up question, rewrite the \
+follow-up question into a standalone question that includes all necessary context \
+from the history. If the follow-up question is already standalone, return it unchanged. \
+Return ONLY the rewritten question, nothing else — no explanation, no quotes.
+ 
+Conversation history:
+{history_text}
+ 
+Follow-up question: {query}
+ 
+Standalone question:"""
+ 
+    response = llm.invoke(rewrite_prompt)
+    return response.content.strip()
+
+
 
 @app.get("/health")
 def health():
@@ -81,17 +117,15 @@ def search(req: SearchRequest):
 
 @app.post("/ask")
 def ask(req: AskRequest):
-    # Step 1-2: same retrieval as /search — reused, not duplicated
-    chunks = retrieve_chunks(req.query, req.top_k)
-
-    # Step 3: build one prompt string containing the retrieved chunks as "context"
-    # This is the entire mechanism of RAG: the LLM never searches anything itself,
-    # it only ever sees whatever text we paste into this prompt.
+    search_query = rewrite_query_with_history(req.query, req.history)
+ 
+    chunks = retrieve_chunks(search_query, req.top_k)
+ 
     context_block = "\n\n".join(
         f"[Article #{c['article_id']}, category: {c['category']}]\n{c['text']}"
         for c in chunks
     )
-
+ 
     current_turn_prompt = f"""Answer the question using ONLY the information in the context below.
 The answer may not appear as one single sentence — combine relevant details from multiple sections if needed.
 Only say the context doesn't contain the answer if NONE of the sections are relevant at all.
@@ -106,6 +140,9 @@ Question: {req.query}
  
 Answer:"""
  
+    # Rebuild the conversation as a real list of typed messages, not one flat string —
+    # this is what lets the model tell "who said what" apart, the same way ChatGPT's
+    # own API expects a messages list rather than a single blob of text.
     messages = []
     for turn in req.history:
         if turn.role == "user":
@@ -115,10 +152,10 @@ Answer:"""
     messages.append(HumanMessage(content=current_turn_prompt))
  
     response = llm.invoke(messages)
-
  
     return {
         "query": req.query,
         "answer": response.content,
-        "sources": chunks, 
+        "sources": chunks,
     }
+
