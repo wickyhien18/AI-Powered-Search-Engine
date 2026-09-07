@@ -182,3 +182,4 @@ frontend/node_modules
 frontend/package.json
 frontend/package-lock.json
 frontend/.next
+chat_history.db
