@@ -97,8 +97,8 @@ Standalone question:"""
     return response.content.strip()
 
 
-@app.get("/health")
-def health():
+@app.api_route("/health", methods=["GET", "HEAD"])
+async def health():
     return {"status": "ok"}
 
 
