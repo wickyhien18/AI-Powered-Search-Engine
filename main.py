@@ -150,24 +150,35 @@ def ask(req: AskRequest):
 
     chunks = retrieve_chunks(search_query, req.top_k)
 
+    # Numbered [1], [2]... in the SAME order as `chunks` — this is what lets
+    # sources[0] in the response line up exactly with "[1]" in the answer text,
+    # so the frontend (or the person reading it) can trace any claim back to
+    # a specific source with zero guesswork. Independent of retrieval method —
+    # this works the same whether chunks came from hybrid search alone or,
+    # in the past, a reranked list; it's just numbering whatever list it gets.
     context_block = "\n\n".join(
-        f"[Article #{c['article_id']}, category: {c['category']}]\n{c['text']}"
-        for c in chunks
+        f"[{i + 1}] (Article #{c['article_id']}, category: {c['category']})\n{c['text']}"
+        for i, c in enumerate(chunks)
     )
 
-    current_turn_prompt = f"""Answer the question using ONLY the information in the context below.
-The answer may not appear as one single sentence — combine relevant details from multiple sections if needed.
-Only say the context doesn't contain the answer if NONE of the sections are relevant at all.
+    current_turn_prompt = f"""Answer the question using ONLY the information in the numbered sources below.
+The answer may not appear as one single sentence — combine relevant details from multiple sources if needed.
+Only say the sources don't contain the answer if NONE of them are relevant at all.
 Do not add outside information. If the question refers back to something from earlier in our
 conversation (e.g. "that", "it", "the one you mentioned"), use the conversation history to
 understand what is being referred to.
 
-Context:
+IMPORTANT — citation rule: after EVERY factual claim you make, add the source number in
+brackets right after it, like this: "Musicians opposed the lawsuits [2]." Use ONLY the
+numbers shown below. If a sentence combines facts from two sources, cite both: "...[1][3]".
+Never invent a number that isn't listed below.
+
+Sources:
 {context_block}
 
 Question: {req.query}
 
-Answer:"""
+Answer (with [n] citations after each claim):"""
 
     # Rebuild the conversation as a real list of typed messages, not one flat string —
     # this is what lets the model tell "who said what" apart, the same way ChatGPT's
