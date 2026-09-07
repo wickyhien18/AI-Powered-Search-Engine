@@ -30,7 +30,7 @@ sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
 
 llm = ChatGroq(model=LLM_MODEL, api_key=GROQ_API_KEY, temperature=0.2, max_tokens=2048)
 
-client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=30)
 
 vectorstore = QdrantVectorStore(
     client=client,

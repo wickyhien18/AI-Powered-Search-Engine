@@ -96,7 +96,7 @@ def main():
     embeddings = FastEmbedEmbeddings(model_name=EMBEDDING_MODEL)
     sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
 
-    client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=60)
     ensure_collection(client)
 
     vectorstore = QdrantVectorStore(
@@ -110,7 +110,7 @@ def main():
     )
 
     print("Doing embed and store into Qdrant (It may take a few minutes with a CPU)...")
-    batch_size = 50
+    batch_size = 20
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
         batch_ids = point_ids[i : i + batch_size]
