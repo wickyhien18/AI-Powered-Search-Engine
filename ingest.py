@@ -14,7 +14,6 @@ from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME, EMBEDDING_DIM
 SPARSE_MODEL_NAME = "Qdrant/bm25"
 
 def load_articles() -> list[Document]:
-    """ Find .csv file then convert into DataFrame variable and then turn into list of Document"""
     csv_path = glob.glob("./data/*.csv")[0]
     df = pd.read_csv(csv_path)
 
@@ -29,7 +28,7 @@ def load_articles() -> list[Document]:
         )
         documents.append(doc)
 
-    print(f"Đã load {len(documents)} bài báo từ {csv_path}")
+    print(f"Loaded {len(documents)} news from {csv_path}")
     return documents
 
 
@@ -40,7 +39,7 @@ def chunk_documents(documents: list[Document]) -> list[Document]:
         chunk_overlap=50, # how many trailling character from previous chunk get copied into the start of the next one
     )
     chunks = splitter.split_documents(documents)
-    print(f"Sau khi chunk: {len(chunks)} chunk (từ {len(documents)} bài báo)")
+    print(f"After chunking: {len(chunks)} chunk (from {len(documents)} news)")
     return chunks
 
 
@@ -83,9 +82,9 @@ def ensure_collection(client: QdrantClient):
             vectors_config={"dense": VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE)},
             sparse_vectors_config={"sparse": SparseVectorParams()}
         )
-        print(f"Đã tạo collection '{COLLECTION_NAME}'")
+        print(f"Create collection '{COLLECTION_NAME}' successful")
     else:
-        print(f"Collection '{COLLECTION_NAME}' đã tồn tại, dùng lại")
+        print(f"Collection '{COLLECTION_NAME}' exist")
 
 
 def main():
@@ -110,15 +109,15 @@ def main():
         sparse_vector_name="sparse",
     )
 
-    print("Đang embed và lưu vào Qdrant (có thể mất vài phút với CPU)...")
+    print("Doing embed and store into Qdrant (It may take a few minutes with a CPU)...")
     batch_size = 50
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
         batch_ids = point_ids[i : i + batch_size]
         vectorstore.add_documents(batch, ids=batch_ids)
-        print(f"  Đã xử lý {min(i + batch_size, len(chunks))}/{len(chunks)} chunk")
+        print(f"  Processed {min(i + batch_size, len(chunks))}/{len(chunks)} chunk")
 
-    print("Ingest hoàn tất.")
+    print("Ingest successfully.")
 
 
 if __name__ == "__main__":
