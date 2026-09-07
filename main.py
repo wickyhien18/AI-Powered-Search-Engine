@@ -11,11 +11,11 @@ from qdrant_client import QdrantClient
 from config import QDRANT_URL, EMBEDDING_MODEL, LLM_MODEL, COLLECTION_NAME
 import db
 
-SPARSE_MODEL_NAME = "Qdrant/bm25"  # must match the one used in ingest.py
+SPARSE_MODEL_NAME = "Qdrant/bm25"
 
 app = FastAPI()
 
-db.init_db()  # tạo bảng nếu chưa có — an toàn gọi mỗi lần server khởi động
+db.init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,10 +27,6 @@ app.add_middleware(
 embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
 sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
 
-# num_predict caps how many tokens the model is allowed to generate.
-# Without this, llama3 can ramble past what's actually needed, and every
-# extra token costs a full forward pass through the model on CPU — this
-# is a direct, real time-saver, not a UX trick like streaming.
 llm = ChatOllama(model=LLM_MODEL, temperature=0.2, num_predict=256)
 
 client = QdrantClient(url=QDRANT_URL)
@@ -50,9 +46,6 @@ class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
 
-
-# One past turn in the conversation — role tells the LLM who said it.
-# "user" = the person's earlier question, "assistant" = the model's earlier answer.
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -61,16 +54,11 @@ class ChatTurn(BaseModel):
 class AskRequest(BaseModel):
     query: str
     top_k: int = 5
-    history: list[ChatTurn] = []  # empty by default — old clients calling /ask without history still work
-    # None = "start a new conversation" (server creates one and returns its id).
-    # A real id = "continue this conversation" — server appends to it instead
-    # of creating a duplicate.
+    history: list[ChatTurn] = []
     conversation_id: int | None = None
 
 
 def retrieve_chunks(query: str, top_k: int):
-    """Hybrid search: dense (semantic) + sparse (BM25 keyword), fused into
-    one ranked list by Qdrant/langchain-qdrant internally (RRF)."""
     results = vectorstore.similarity_search_with_score(query, k=top_k)
     return [
         {
@@ -84,18 +72,7 @@ def retrieve_chunks(query: str, top_k: int):
 
 
 def rewrite_query_with_history(query: str, history: list[ChatTurn]) -> str:
-    """
-    Turn a context-dependent follow-up ("which category does that belong to?")
-    into a standalone question that makes sense on its own ("which category
-    does the article about musicians protesting visa costs belong to?").
-
-    This is a SEPARATE, small LLM call that runs BEFORE retrieval — its only
-    job is producing better search text, it never sees the Qdrant results and
-    its output is never shown to the user directly.
-    """
     if not history:
-        # First turn in a conversation has nothing to rewrite against — skip
-        # the extra LLM call entirely (saves time, and there's nothing to fix).
         return query
 
     history_text = "\n".join(
@@ -132,30 +109,16 @@ def search(req: SearchRequest):
 
 @app.post("/ask")
 def ask(req: AskRequest):
-    # Create a new conversation row if this is the first message — the title
-    # is just the first ~60 chars of the query, good enough to recognize in
-    # a sidebar list without adding a separate "generate a title" LLM call.
+
     conversation_id = req.conversation_id
     if conversation_id is None:
         title = req.query[:60] + ("..." if len(req.query) > 60 else "")
         conversation_id = db.create_conversation(title)
 
-    # Rewrite BEFORE retrieval — this fixes the exact bug from before:
-    # "which category does that article belong to?" becomes something like
-    # "which category does the article about musicians protesting visa costs
-    # belong to?" — THAT rewritten text is what gets embedded and searched,
-    # so retrieval finds the right chunks instead of chunks matching the
-    # literal (context-free) words "which category does that article belong to".
     search_query = rewrite_query_with_history(req.query, req.history)
 
     chunks = retrieve_chunks(search_query, req.top_k)
 
-    # Numbered [1], [2]... in the SAME order as `chunks` — this is what lets
-    # sources[0] in the response line up exactly with "[1]" in the answer text,
-    # so the frontend (or the person reading it) can trace any claim back to
-    # a specific source with zero guesswork. Independent of retrieval method —
-    # this works the same whether chunks came from hybrid search alone or,
-    # in the past, a reranked list; it's just numbering whatever list it gets.
     context_block = "\n\n".join(
         f"[{i + 1}] (Article #{c['article_id']}, category: {c['category']})\n{c['text']}"
         for i, c in enumerate(chunks)
@@ -180,9 +143,6 @@ Question: {req.query}
 
 Answer (with [n] citations after each claim):"""
 
-    # Rebuild the conversation as a real list of typed messages, not one flat string —
-    # this is what lets the model tell "who said what" apart, the same way ChatGPT's
-    # own API expects a messages list rather than a single blob of text.
     messages = []
     for turn in req.history:
         if turn.role == "user":
@@ -193,8 +153,6 @@ Answer (with [n] citations after each claim):"""
 
     response = llm.invoke(messages)
 
-    # Persist AFTER generation succeeds — both the user's question and the
-    # model's answer, as two separate rows, in the order they happened.
     db.add_message(conversation_id, "user", req.query)
     db.add_message(conversation_id, "assistant", response.content, sources=chunks)
 
@@ -208,13 +166,9 @@ Answer (with [n] citations after each claim):"""
 
 @app.get("/conversations")
 def get_conversations():
-    """Danh sách conversation cho sidebar — endpoint THUẦN ĐỌC, không chạm gì tới AI."""
     return {"conversations": db.list_conversations()}
 
 
 @app.get("/conversations/{conversation_id}")
 def get_conversation(conversation_id: int):
-    """Toàn bộ tin nhắn của 1 conversation — LOAD THẲNG từ database,
-    không chạy lại retrieval/LLM gì cả. Đây chính là cơ chế 'chọn lại
-    conversation cũ không phải chạy lại model' mà bạn muốn."""
     return {"messages": db.get_conversation_messages(conversation_id)}
