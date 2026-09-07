@@ -28,7 +28,7 @@ app.add_middleware(
 embeddings = FastEmbedEmbeddings(model_name=EMBEDDING_MODEL)
 sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
 
-llm = ChatGroq(model=LLM_MODEL, api_key=GROQ_API_KEY, temperature=0.2, max_tokens=256)
+llm = ChatGroq(model=LLM_MODEL, api_key=GROQ_API_KEY, temperature=0.2, max_tokens=2048)
 
 client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
