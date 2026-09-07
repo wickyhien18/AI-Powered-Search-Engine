@@ -7,22 +7,15 @@ from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
 from langchain_core.messages import HumanMessage, AIMessage
 from qdrant_client import QdrantClient
-from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-from config import QDRANT_URL, EMBEDDING_MODEL, LLM_MODEL, COLLECTION_NAME, ENABLE_RERANK
+from config import QDRANT_URL, EMBEDDING_MODEL, LLM_MODEL, COLLECTION_NAME
+import db
 
 SPARSE_MODEL_NAME = "Qdrant/bm25"  # must match the one used in ingest.py
-RERANK_MODEL_NAME = "Xenova/ms-marco-MiniLM-L-6-v2"
-# Retrieve more candidates than we actually need, so the reranker has real
-# material to sort through — reranking a pool of 5 down to 5 does nothing.
-RERANK_CANDIDATE_POOL = 15
-# ms-marco-MiniLM cross-encoders output raw scores, NOT a 0-1 probability —
-# negative scores mean "the model itself thinks this is not relevant".
-# 0 is a reasonable cutoff: keep only chunks the cross-encoder actually
-# considers relevant, rather than always force-filling exactly top_k slots.
-RERANK_MIN_SCORE = 0.0
 
 app = FastAPI()
+
+db.init_db()  # tạo bảng nếu chưa có — an toàn gọi mỗi lần server khởi động
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,17 +26,6 @@ app.add_middleware(
 
 embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
 sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
-# Cross-encoder: unlike the embedding models above (which encode query and
-# chunk SEPARATELY, then compare vectors), a cross-encoder reads the query
-# and a candidate chunk TOGETHER in one pass and outputs a single relevance
-# score. This is slower per-pair (can't precompute chunk vectors in advance
-# like Qdrant does), which is exactly why it only runs on a small shortlist
-# AFTER retrieval, never on the full 7583-chunk collection.
-#
-# Only loaded when ENABLE_RERANK=true — skips downloading/loading this model
-# entirely when rerank is off, since it currently isn't reliable on THIS
-# dataset's stripped/lowercased chunk text (see config.py comment).
-reranker = TextCrossEncoder(model_name=RERANK_MODEL_NAME) if ENABLE_RERANK else None
 
 # num_predict caps how many tokens the model is allowed to generate.
 # Without this, llama3 can ramble past what's actually needed, and every
@@ -80,64 +62,24 @@ class AskRequest(BaseModel):
     query: str
     top_k: int = 5
     history: list[ChatTurn] = []  # empty by default — old clients calling /ask without history still work
+    # None = "start a new conversation" (server creates one and returns its id).
+    # A real id = "continue this conversation" — server appends to it instead
+    # of creating a duplicate.
+    conversation_id: int | None = None
 
 
 def retrieve_chunks(query: str, top_k: int):
-    if not ENABLE_RERANK:
-        # Default path — the proven hybrid RRF ranking from Giai đoạn 8/11,
-        # already validated by evaluate.py. No cross-encoder involved at all.
-        results = vectorstore.similarity_search_with_score(query, k=top_k)
-        return [
-            {
-                "score": score,
-                "text": doc.page_content,
-                "article_id": doc.metadata.get("article_id"),
-                "category": doc.metadata.get("category"),
-            }
-            for doc, score in results
-        ]
-
-    # Step 1 — cast a WIDER net than needed (RERANK_CANDIDATE_POOL, not top_k).
-    # Hybrid search (RRF) is good at "roughly relevant fast", not perfectly
-    # ordered — the reranker's job is to fix the ORDER of these candidates.
-    candidates = vectorstore.similarity_search(query, k=RERANK_CANDIDATE_POOL)
-    if not candidates:
-        return []
-
-    candidate_texts = [doc.page_content for doc in candidates]
-
-    # Step 2 — score each (query, chunk) pair with the cross-encoder.
-    # rerank() returns scores in the SAME order as candidate_texts went in.
-    rerank_scores = list(reranker.rerank(query, candidate_texts))
-
-    # Step 3 — sort candidates by the NEW cross-encoder score, take only top_k.
-    # This can genuinely reorder results versus what hybrid search returned —
-    # a chunk hybrid ranked #4 might jump to #1 here if the cross-encoder
-    # judges it more directly relevant once it reads query and chunk together.
-    scored_candidates = list(zip(candidates, rerank_scores))
-    scored_candidates.sort(key=lambda pair: pair[1], reverse=True)
-
-    # Drop anything below the relevance threshold BEFORE cutting to top_k —
-    # this is what fixes the "forced 5th irrelevant source" problem: if only
-    # 3 candidates actually clear the bar, we return 3, not 5 padded with junk.
-    #
-    # KNOWN ISSUE (see config.py, ENABLE_RERANK comment): on this dataset's
-    # stripped/lowercased text, the cross-encoder's absolute scores are NOT
-    # reliably calibrated — an irrelevant chunk has scored HIGHER than a
-    # genuinely relevant one in testing. Keep this threshold logic in place
-    # for whenever ingest.py is updated to preserve natural-language text,
-    # but do not trust it blindly while ENABLE_RERANK is manually turned on.
-    relevant_candidates = [pair for pair in scored_candidates if pair[1] >= RERANK_MIN_SCORE]
-    top_candidates = relevant_candidates[:top_k]
-
+    """Hybrid search: dense (semantic) + sparse (BM25 keyword), fused into
+    one ranked list by Qdrant/langchain-qdrant internally (RRF)."""
+    results = vectorstore.similarity_search_with_score(query, k=top_k)
     return [
         {
-            "score": float(score),
+            "score": score,
             "text": doc.page_content,
             "article_id": doc.metadata.get("article_id"),
             "category": doc.metadata.get("category"),
         }
-        for doc, score in top_candidates
+        for doc, score in results
     ]
 
 
@@ -190,6 +132,14 @@ def search(req: SearchRequest):
 
 @app.post("/ask")
 def ask(req: AskRequest):
+    # Create a new conversation row if this is the first message — the title
+    # is just the first ~60 chars of the query, good enough to recognize in
+    # a sidebar list without adding a separate "generate a title" LLM call.
+    conversation_id = req.conversation_id
+    if conversation_id is None:
+        title = req.query[:60] + ("..." if len(req.query) > 60 else "")
+        conversation_id = db.create_conversation(title)
+
     # Rewrite BEFORE retrieval — this fixes the exact bug from before:
     # "which category does that article belong to?" becomes something like
     # "which category does the article about musicians protesting visa costs
@@ -201,28 +151,23 @@ def ask(req: AskRequest):
     chunks = retrieve_chunks(search_query, req.top_k)
 
     context_block = "\n\n".join(
-        f"[{i + 1}] (Article #{c['article_id']}, category: {c['category']})\n{c['text']}"
-        for i, c in enumerate(chunks)
+        f"[Article #{c['article_id']}, category: {c['category']}]\n{c['text']}"
+        for c in chunks
     )
 
-    current_turn_prompt = f"""Answer the question using ONLY the information in the numbered sources below.
-The answer may not appear as one single sentence — combine relevant details from multiple sources if needed.
-Only say the sources don't contain the answer if NONE of them are relevant at all.
+    current_turn_prompt = f"""Answer the question using ONLY the information in the context below.
+The answer may not appear as one single sentence — combine relevant details from multiple sections if needed.
+Only say the context doesn't contain the answer if NONE of the sections are relevant at all.
 Do not add outside information. If the question refers back to something from earlier in our
 conversation (e.g. "that", "it", "the one you mentioned"), use the conversation history to
 understand what is being referred to.
 
-IMPORTANT — citation rule: after EVERY factual claim you make, add the source number in
-brackets right after it, like this: "Musicians opposed the lawsuits [2]." Use ONLY the
-numbers shown below. If a sentence combines facts from two sources, cite both: "...[1][3]".
-Never invent a number that isn't listed below.
-
-Sources:
+Context:
 {context_block}
 
 Question: {req.query}
 
-Answer (with [n] citations after each claim):"""
+Answer:"""
 
     # Rebuild the conversation as a real list of typed messages, not one flat string —
     # this is what lets the model tell "who said what" apart, the same way ChatGPT's
@@ -237,8 +182,28 @@ Answer (with [n] citations after each claim):"""
 
     response = llm.invoke(messages)
 
+    # Persist AFTER generation succeeds — both the user's question and the
+    # model's answer, as two separate rows, in the order they happened.
+    db.add_message(conversation_id, "user", req.query)
+    db.add_message(conversation_id, "assistant", response.content, sources=chunks)
+
     return {
         "query": req.query,
         "answer": response.content,
         "sources": chunks,
+        "conversation_id": conversation_id,
     }
+
+
+@app.get("/conversations")
+def get_conversations():
+    """Danh sách conversation cho sidebar — endpoint THUẦN ĐỌC, không chạm gì tới AI."""
+    return {"conversations": db.list_conversations()}
+
+
+@app.get("/conversations/{conversation_id}")
+def get_conversation(conversation_id: int):
+    """Toàn bộ tin nhắn của 1 conversation — LOAD THẲNG từ database,
+    không chạy lại retrieval/LLM gì cả. Đây chính là cơ chế 'chọn lại
+    conversation cũ không phải chạy lại model' mà bạn muốn."""
+    return {"messages": db.get_conversation_messages(conversation_id)}
