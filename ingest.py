@@ -4,12 +4,13 @@ import pandas as pd
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, SparseVectorParams
 
-from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME, EMBEDDING_DIM
+from config import QDRANT_URL, QDRANT_API_KEY, EMBEDDING_MODEL, COLLECTION_NAME, EMBEDDING_DIM
 
 SPARSE_MODEL_NAME = "Qdrant/bm25"
 
@@ -92,11 +93,10 @@ def main():
     chunks = chunk_documents(documents)
     point_ids = assign_point_ids(chunks)
 
-    embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
-
+    embeddings = FastEmbedEmbeddings(model_name=EMBEDDING_MODEL)
     sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
 
-    client = QdrantClient(url=QDRANT_URL)
+    client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
     ensure_collection(client)
 
     vectorstore = QdrantVectorStore(

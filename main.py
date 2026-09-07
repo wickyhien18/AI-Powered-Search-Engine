@@ -3,12 +3,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from langchain_ollama import OllamaEmbeddings, ChatOllama
+from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_groq import ChatGroq
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
 from langchain_core.messages import HumanMessage, AIMessage
 from qdrant_client import QdrantClient
 
-from config import QDRANT_URL, EMBEDDING_MODEL, LLM_MODEL, COLLECTION_NAME
+from config import QDRANT_URL, QDRANT_API_KEY, EMBEDDING_MODEL, GROQ_API_KEY, LLM_MODEL, COLLECTION_NAME
 import db
 
 SPARSE_MODEL_NAME = "Qdrant/bm25"
@@ -24,12 +25,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+embeddings = FastEmbedEmbeddings(model_name=EMBEDDING_MODEL)
 sparse_embeddings = FastEmbedSparse(model_name=SPARSE_MODEL_NAME)
 
-llm = ChatOllama(model=LLM_MODEL, temperature=0.2, num_predict=256)
+llm = ChatGroq(model=LLM_MODEL, api_key=GROQ_API_KEY, temperature=0.2, max_tokens=256)
 
-client = QdrantClient(url=QDRANT_URL)
+client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
 vectorstore = QdrantVectorStore(
     client=client,
