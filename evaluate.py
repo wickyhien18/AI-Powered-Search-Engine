@@ -1,11 +1,3 @@
-"""
-evaluate.py — Đo chất lượng retrieval bằng golden set (query đã biết đáp án đúng),
-tính điểm RIÊNG theo từng nhóm loại câu hỏi (proper_noun / paraphrase / general)
-để biết chính xác hybrid mạnh/yếu ở loại câu hỏi nào, thay vì 1 con số gộp chung.
-
-Chạy: python evaluate.py
-"""
-
 from collections import defaultdict
 
 from langchain_ollama import OllamaEmbeddings
@@ -17,8 +9,6 @@ from config import QDRANT_URL, EMBEDDING_MODEL, COLLECTION_NAME
 SPARSE_MODEL_NAME = "Qdrant/bm25"
 TOP_K = 5
 
-# Golden set — đáp án đã được TỰ TAY xác nhận qua label_helper.py, đọc thật nội
-# dung từng bài để quyết định, không phải suy đoán từ tên bài.
 GOLDEN_SET = [
     {"query": "kapranos", "expected_article_ids": {233, 386}, "category": "proper_noun"},
     {"query": "u2", "expected_article_ids": {371, 259, 1, 385, 226, 76}, "category": "proper_noun"},
