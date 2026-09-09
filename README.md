@@ -25,7 +25,6 @@
 - [Testing](#testing)
 - [Deployment](#deployment)
 - [Troubleshooting](#troubleshooting)
-- [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [References](#references)
 - [License](#license)
