@@ -99,8 +99,13 @@ Standalone question:"""
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
-    return {"status": "ok"}
-
+    try:
+        client.get_collections()
+        qdrant_status = "ok"
+    except Exception as e:
+        qdrant_status = f"error: {e}"
+ 
+    return {"status": "ok", "qdrant": qdrant_status}
 
 @app.post("/search")
 def search(req: SearchRequest):
