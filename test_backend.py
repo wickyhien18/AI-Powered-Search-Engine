@@ -263,7 +263,7 @@ def _ask_through_real_adapter(tavily_results, query="adapter filter case"):
     saved = (main.web_search, search._client, search.MIN_SCORE)
     main.web_search = search.web_search
     search._client = FakeTavily()
-    search.MIN_SCORE = 0.05  # pin it so a MIN_SCORE value in .env cannot change the test
+    search.MIN_SCORE = 0.20  # pin it so a MIN_SCORE value in .env cannot change the test
     try:
         return client.post("/ask", json={"query": query})
     finally:
@@ -290,6 +290,8 @@ def test_mixed_scores_keep_only_relevant_sources_numbered_from_one():
     mixed = [
         {"url": "https://good.example/a", "title": "Good A", "content": "relevant text a", "score": 0.76},
         {"url": "https://junk.example/b", "title": "Junk B", "content": "unrelated text b", "score": 0.022},
+        # The real case that slipped past the old 0.05 threshold: an Instagram page of captions.
+        {"url": "https://junk.example/e", "title": "Junk E", "content": "unrelated text e", "score": 0.0589},
         {"url": "https://good.example/c", "title": "Good C", "content": "relevant text c", "score": 0.48},
         # No score: cannot be judged, so it is kept rather than silently dropped.
         {"url": "https://noscore.example/d", "title": "No Score D", "content": "text d", "score": None},
@@ -304,6 +306,7 @@ def test_mixed_scores_keep_only_relevant_sources_numbered_from_one():
     assert "[2] Good C (https://good.example/c)" in prompt
     assert "[3] No Score D (https://noscore.example/d)" in prompt
     assert "Junk B" not in prompt and "unrelated text b" not in prompt
+    assert "Junk E" not in prompt and "unrelated text e" not in prompt
 
 
 def test_rewrite_prompt_carries_history_and_falls_back_when_empty():

@@ -146,7 +146,14 @@ both with their own citations instead of picking one.
 - If the sources describe different events, campaigns or time periods, keep them separate and \
 give the dates. Do not merge them into one movement.
 - State a cause, a sequence ("followed", "led to", "because") or a negative ("did not respond") \
-only when a source says so explicitly. Otherwise leave it out.
+only when a source says so explicitly. Otherwise leave it out. Keep the source's hedging words \
+("allegedly", "reportedly", "may", "claims") exactly as written; never turn an alleged or reported \
+cause into a plain fact.
+- Do not copy relative time words such as "last year", "recently", "this month" or "now" from a \
+source. Convert them to an absolute year using the year in the source URL or a date in its excerpt \
+(for example "in 2025"). If you cannot tell when it happened, leave the time out.
+- Do not generalize from examples. Write "all", "every", "none" or "the whole movement" only when a \
+source says exactly that. If a source names a few examples, write "several, including X and Y".
 
 Citation rule: after EVERY factual claim, add the source number in brackets, like this: \
 "Musicians left the platform [2]." Use ONLY the numbers listed below. If a sentence combines \
