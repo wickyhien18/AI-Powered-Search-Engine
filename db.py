@@ -1,5 +1,10 @@
-import sqlite3
+"""
+db.py - Conversation and message storage backed by SQLite.
+This file knows nothing about search or LLMs; it is a plain read/write layer.
+"""
+
 import json
+import sqlite3
 from datetime import datetime, timezone
 
 DB_PATH = "chat_history.db"
@@ -7,11 +12,12 @@ DB_PATH = "chat_history.db"
 
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row  # access columns by name, e.g. row["title"]
     return conn
 
 
 def init_db():
+    """Create the tables if they do not exist. Safe to call on every startup."""
     conn = get_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS conversations (
@@ -36,6 +42,7 @@ def init_db():
 
 
 def create_conversation(title: str) -> int:
+    """Create a new conversation and return its id."""
     conn = get_connection()
     cursor = conn.execute(
         "INSERT INTO conversations (title, created_at) VALUES (?, ?)",
@@ -48,6 +55,8 @@ def create_conversation(title: str) -> int:
 
 
 def add_message(conversation_id: int, role: str, content: str, sources: list | None = None):
+    """Store one message (user or assistant) in an existing conversation.
+    Sources are stored as a JSON string because SQLite has no native list/dict type."""
     conn = get_connection()
     conn.execute(
         "INSERT INTO messages (conversation_id, role, content, sources, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -64,6 +73,7 @@ def add_message(conversation_id: int, role: str, content: str, sources: list | N
 
 
 def list_conversations() -> list[dict]:
+    """All conversations for the sidebar, newest first."""
     conn = get_connection()
     rows = conn.execute(
         "SELECT id, title, created_at FROM conversations ORDER BY created_at DESC"
@@ -73,6 +83,8 @@ def list_conversations() -> list[dict]:
 
 
 def get_conversation_messages(conversation_id: int) -> list[dict]:
+    """All messages of one conversation in chronological order.
+    Pure database read: no search or LLM call is made."""
     conn = get_connection()
     rows = conn.execute(
         "SELECT role, content, sources FROM messages WHERE conversation_id = ? ORDER BY id ASC",
