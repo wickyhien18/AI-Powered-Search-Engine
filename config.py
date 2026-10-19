@@ -14,10 +14,11 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 # Tavily scores every result from 0 to 1. Results scoring below MIN_SCORE are
 # dropped before they reach the LLM, so junk pages cannot leak into answers.
-# Observed over 45 real results: junk scored <= 0.0589, relevant sources >= 0.420
-# (nothing was seen in between). 0.20 sits inside that gap and was chosen to
+# Observed over 82 real results (45 earlier, 37 re-measured with
+# probe_scores.py): junk scored <= 0.0589, relevant sources >= 0.3233, and
+# nothing was seen in between. 0.20 sits inside that gap and was chosen to
 # favor precision. Scores are not comparable across queries, so do not push
-# this much higher: a query whose relevant results all score ~0.45 would
+# this much higher: a query whose relevant results all score ~0.35 would
 # lose every source.
 MIN_SCORE = float(os.getenv("MIN_SCORE", "0.20"))
 
