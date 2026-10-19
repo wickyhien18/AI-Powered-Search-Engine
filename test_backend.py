@@ -334,6 +334,48 @@ def test_rewrite_prompt_carries_history_and_falls_back_when_empty():
     finally:
         fake_llm.rewrite = "rewritten standalone query"
 
+def test_strip_reference_lines_removes_wikipedia_footnotes():
+    import search
+
+    footnotes_only = (
+        '15. ↑ Corlett, Eva (May 9, 2024). "Macklemore performs pro-Palestine song". The Guardian. Retrieved May 9, 2024.\n'
+        '16. ↑ Lau, Evelyn (May 11, 2024). "Hind\'s Hall is now on streaming". The National. Retrieved May 12, 2024. [...] '
+        '8. 1 2 3 4 5 "US rapper Macklemore releases track". The New Arab. May 7, 2024. Archived from the original on May 8, 2024. Retrieved May 8, 2024.'
+    )
+    assert search.strip_reference_lines(footnotes_only) == ""
+
+    mixed = (
+        '"Hind\'s Hall" is a protest song. Released as a single on May 6, 2024, it expresses support. [...] '
+        '13. ↑ Blistein, Jon (May 7, 2024). "Macklemore Drops". Rolling Stone. Retrieved May 9, 2024.'
+    )
+    out = search.strip_reference_lines(mixed)
+    assert "Released as a single on May 6, 2024" in out
+    assert "May 7, 2024" not in out and "Blistein" not in out
+
+
+def test_strip_reference_lines_keeps_normal_text():
+    import search
+
+    text = "Plain sentence. [...] Another one."
+    assert search.strip_reference_lines(text) == text
+    recipe = "1. 2 eggs\n2. 1 cup flour"  # numbered lines without footnote markers stay
+    assert search.strip_reference_lines(recipe) == recipe
+
+
+def test_footnote_only_source_is_dropped_by_adapter():
+    reset()
+    results = [
+        {
+            "url": "https://en.wikipedia.org/wiki/X",
+            "title": "X",
+            "content": '13. ↑ Blistein, Jon (May 7, 2024). "Title". Rolling Stone. Retrieved May 9, 2024.',
+            "score": 0.8,
+        },
+        {"url": "https://good.example/a", "title": "Good", "content": "Real text.", "score": 0.7},
+    ]
+    r = _ask_through_real_adapter(results)
+    assert r.status_code == 200, r.text
+    assert [s["title"] for s in r.json()["sources"]] == ["Good"]
 
 if __name__ == "__main__":
     # Explicit order: the persistence and follow-up tests depend on earlier state.
@@ -353,6 +395,9 @@ if __name__ == "__main__":
         "test_all_results_below_min_score_skips_the_llm",
         "test_mixed_scores_keep_only_relevant_sources_numbered_from_one",
         "test_rewrite_prompt_carries_history_and_falls_back_when_empty",
+        "test_strip_reference_lines_removes_wikipedia_footnotes",
+        "test_strip_reference_lines_keeps_normal_text",
+        "test_footnote_only_source_is_dropped_by_adapter",
     ]
     failed = 0
     for name in order:
