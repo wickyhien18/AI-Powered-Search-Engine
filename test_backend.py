@@ -15,6 +15,7 @@ import tempfile
 # Dummy keys so the real clients can be constructed at import time.
 os.environ.setdefault("GROQ_API_KEY", "test-key")
 os.environ.setdefault("TAVILY_API_KEY", "test-key")
+os.environ["REDIS_URL"] = ""
 
 import db
 
@@ -377,6 +378,105 @@ def test_footnote_only_source_is_dropped_by_adapter():
     assert r.status_code == 200, r.text
     assert [s["title"] for s in r.json()["sources"]] == ["Good"]
 
+# ---------------------------------------------------------------- rate limit
+
+def _make_limiter(ip_per_minute=5, ip_per_day=10, global_per_day=30, client=None):
+    """A RateLimiter backed by an isolated in-memory fake Redis that really
+    runs the Lua script (needs: pip install "fakeredis[lua]")."""
+    import fakeredis
+    import rate_limit
+
+    client = client or fakeredis.FakeRedis(server=fakeredis.FakeServer())
+    return rate_limit.RateLimiter(client, ip_per_minute, ip_per_day, global_per_day), client
+
+
+def test_rate_limit_per_ip_minute_blocks_extra_requests():
+    limiter, _ = _make_limiter(ip_per_minute=5, ip_per_day=0, global_per_day=0)
+    assert [limiter.check("1.1.1.1")[0] for _ in range(5)] == [True] * 5
+    allowed, limit_hit, retry_after = limiter.check("1.1.1.1")
+    assert (allowed, limit_hit) == (False, "ip_minute")
+    assert 1 <= retry_after <= 60
+    assert limiter.check("2.2.2.2")[0] is True  # another IP is not affected
+
+
+def test_rate_limit_global_cap_blocks_every_ip_and_rejections_cost_nothing():
+    limiter, client = _make_limiter(ip_per_minute=0, ip_per_day=2, global_per_day=3)
+    assert limiter.check("1.1.1.1")[0] and limiter.check("1.1.1.1")[0]  # IP A hits its daily 2
+    assert limiter.check("1.1.1.1")[:2] == (False, "ip_day")
+    assert limiter.check("2.2.2.2")[0] is True  # global is now 3 of 3
+    allowed, limit_hit, retry_after = limiter.check("3.3.3.3")
+    assert (allowed, limit_hit) == (False, "global_day")
+    assert 1 <= retry_after <= 86400
+    # A rejected request must not consume quota on the other counters.
+    assert client.get("rl:ip_day:3.3.3.3") is None
+    assert int(client.get("rl:ip_day:1.1.1.1")) == 2
+
+
+def test_rate_limited_ask_returns_429_and_never_reaches_tavily():
+    import rate_limit
+
+    reset()
+    original = rate_limit.limiter
+    rate_limit.limiter, _ = _make_limiter(ip_per_minute=1, ip_per_day=0, global_per_day=0)
+    try:
+        headers = {"x-forwarded-for": "9.9.9.9"}
+        first = client.post("/ask", json={"query": "first call"}, headers=headers)
+        second = client.post("/ask", json={"query": "second call"}, headers=headers)
+        search_second = client.post("/search", json={"query": "third call"}, headers=headers)
+    finally:
+        rate_limit.limiter = original
+    assert first.status_code == 200, first.text
+    assert second.status_code == 429
+    detail = second.json()["detail"]
+    assert detail["code"] == "rate_limited" and detail["limit"] == "ip_minute"
+    assert second.headers["retry-after"] == str(detail["retry_after"])
+    assert search_second.status_code == 429  # /search shares the same budget
+    # Only the first request spent a search credit.
+    assert [c["query"] for c in fake_search.calls] == ["first call"]
+
+
+def test_client_ip_is_read_from_the_right_of_x_forwarded_for():
+    from starlette.requests import Request
+    import rate_limit
+
+    def make(header, peer="10.0.0.1"):
+        headers = [(b"x-forwarded-for", header.encode())] if header else []
+        return Request({"type": "http", "headers": headers, "client": (peer, 1234)})
+
+    # One trusted proxy appended the real client; a forged value sits on the left.
+    assert rate_limit.get_client_ip(make("6.6.6.6, 7.7.7.7"), 1) == "7.7.7.7"
+    assert rate_limit.get_client_ip(make("6.6.6.6, 7.7.7.7"), 2) == "6.6.6.6"
+    assert rate_limit.get_client_ip(make(""), 1) == "10.0.0.1"          # no header
+    assert rate_limit.get_client_ip(make("7.7.7.7"), 2) == "10.0.0.1"   # fewer entries than hops
+    assert rate_limit.get_client_ip(make("7.7.7.7"), 0) == "10.0.0.1"   # header ignored
+
+
+def test_redis_down_fails_closed_by_default_and_open_when_configured():
+    import redis
+    import rate_limit
+
+    class BrokenRedis:
+        def register_script(self, script):
+            def run(keys, args):
+                raise redis.ConnectionError("upstash unreachable")
+            return run
+
+    reset()
+    original_limiter, original_open = rate_limit.limiter, rate_limit.RATE_LIMIT_FAIL_OPEN
+    rate_limit.limiter = rate_limit.RateLimiter(BrokenRedis(), 5, 10, 30)
+    try:
+        rate_limit.RATE_LIMIT_FAIL_OPEN = False
+        closed = client.post("/ask", json={"query": "redis down closed"})
+        assert closed.status_code == 503
+        assert closed.json()["detail"]["code"] == "rate_limiter_unavailable"
+        assert fake_search.calls == []  # credits protected
+
+        rate_limit.RATE_LIMIT_FAIL_OPEN = True
+        opened = client.post("/ask", json={"query": "redis down open"})
+        assert opened.status_code == 200, opened.text
+    finally:
+        rate_limit.limiter, rate_limit.RATE_LIMIT_FAIL_OPEN = original_limiter, original_open
+
 if __name__ == "__main__":
     # Explicit order: the persistence and follow-up tests depend on earlier state.
     order = [
@@ -398,6 +498,11 @@ if __name__ == "__main__":
         "test_strip_reference_lines_removes_wikipedia_footnotes",
         "test_strip_reference_lines_keeps_normal_text",
         "test_footnote_only_source_is_dropped_by_adapter",
+        "test_rate_limit_per_ip_minute_blocks_extra_requests",
+        "test_rate_limit_global_cap_blocks_every_ip_and_rejections_cost_nothing",
+        "test_rate_limited_ask_returns_429_and_never_reaches_tavily",
+        "test_client_ip_is_read_from_the_right_of_x_forwarded_for",
+        "test_redis_down_fails_closed_by_default_and_open_when_configured",
     ]
     failed = 0
     for name in order:

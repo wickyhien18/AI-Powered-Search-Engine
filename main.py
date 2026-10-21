@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_groq import ChatGroq
@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 import db
 from config import CORS_ORIGINS, GROQ_API_KEY, LLM_MODEL
+from rate_limit import enforce_rate_limit
 from search import WebSearchError, web_search
 
 # Upper bound on web results per question, so one request cannot burn
@@ -185,7 +186,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/search")
+@app.post("/search", dependencies=[Depends(enforce_rate_limit)])
 def search(req: SearchRequest):
     """Web search only, no LLM. Useful for inspecting what the search API returns."""
     try:
@@ -195,7 +196,7 @@ def search(req: SearchRequest):
     return {"query": req.query, "results": results}
 
 
-@app.post("/ask")
+@app.post("/ask", dependencies=[Depends(enforce_rate_limit)])
 def ask(req: AskRequest):
     # Resolve follow-ups into a standalone search query first.
     search_query = rewrite_query_with_history(req.query, req.history)

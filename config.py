@@ -27,6 +27,23 @@ MIN_SCORE = float(os.getenv("MIN_SCORE", "0.20"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b")
 
+# --- Rate limiting (Upstash Redis) ---
+# Every /ask and /search request costs one Tavily credit, so the number of
+# requests is capped. Leave REDIS_URL empty to turn rate limiting off
+# (local development and the offline tests do this).
+# Upstash console -> your database -> "Redis" tab -> copy the rediss:// URL.
+REDIS_URL = os.getenv("REDIS_URL")
+RATE_LIMIT_IP_PER_MINUTE = int(os.getenv("RATE_LIMIT_IP_PER_MINUTE", "5"))
+RATE_LIMIT_IP_PER_DAY = int(os.getenv("RATE_LIMIT_IP_PER_DAY", "10"))
+RATE_LIMIT_GLOBAL_PER_DAY = int(os.getenv("RATE_LIMIT_GLOBAL_PER_DAY", "30"))  # 30 x 31 days = 930 < 1000 credits
+# If Redis is unreachable: "true" lets requests through (credits unprotected),
+# "false" rejects them with 503 (credits protected, site unavailable).
+RATE_LIMIT_FAIL_OPEN = os.getenv("RATE_LIMIT_FAIL_OPEN", "false").lower() == "true"
+# Number of reverse proxies between the internet and this app that append to
+# X-Forwarded-For. Measure it on the real deployment with RATE_LIMIT_DEBUG=true.
+TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "1"))
+RATE_LIMIT_DEBUG = os.getenv("RATE_LIMIT_DEBUG", "false").lower() == "true"
+
 # --- CORS ---
 # Comma-separated list of frontend origins allowed to call this API.
 # The default keeps local development and the deployed Vercel frontend working.
