@@ -183,3 +183,4 @@ frontend/package-lock.json
 frontend/.next
 chat_history.db
 frontend/package.json
+*.tsbuildinfo

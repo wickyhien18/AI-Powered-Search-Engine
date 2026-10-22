@@ -184,7 +184,6 @@ python backend/evaluate.py
 │   ├── ingest.py            # Data pipeline: CSV -> chunk -> embed -> Qdrant
 │   ├── evaluate.py          # Golden-set evaluation (Recall@k, MRR, Precision@k)
 │   ├── label_helper.py      # Manual ground-truth labeling tool
-│   ├── setup.py             # BBC dataset downloader
 │   ├── requirements.txt     # Backend dependencies
 │   ├── requirements-dev.txt # Development dependencies
 │   ├── chat_history.db      # SQLite database
