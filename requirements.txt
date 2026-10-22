@@ -1,8 +1,1 @@
-fastapi
-uvicorn[standard]
-pydantic
-python-dotenv
-langchain-core
-langchain-groq
-tavily-python
-redis
+-r backend/requirements.txt

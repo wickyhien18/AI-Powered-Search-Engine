@@ -1,6 +1,13 @@
 import glob
+import sys
 import uuid
+from pathlib import Path
 import pandas as pd
+
+# Add backend directory to sys.path so direct imports work regardless of working directory
+_backend_dir = Path(__file__).resolve().parent
+if str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -15,7 +22,13 @@ from config import QDRANT_URL, QDRANT_API_KEY, EMBEDDING_MODEL, COLLECTION_NAME,
 SPARSE_MODEL_NAME = "Qdrant/bm25"
 
 def load_articles() -> list[Document]:
-    csv_path = glob.glob("./data/*.csv")[0]
+    data_dir = _backend_dir / "data"
+    if not data_dir.exists():
+        data_dir = Path("./data")
+    csv_files = list(data_dir.glob("*.csv"))
+    if not csv_files:
+        raise FileNotFoundError(f"No CSV file found in {data_dir}")
+    csv_path = str(csv_files[0])
     df = pd.read_csv(csv_path)
 
     documents = []

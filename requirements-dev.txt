@@ -1,3 +1,1 @@
--r requirements.txt
-fakeredis[lua]
-httpx
+-r backend/requirements-dev.txt

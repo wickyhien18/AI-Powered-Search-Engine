@@ -134,20 +134,21 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ## Usage
 
-**1. Ingest the dataset (run once, or whenever the source data changes):**
+**1. Run the backend API:**
 
 ```bash
-python ingest.py
-```
+# Option A: From the project root
+uvicorn backend.main:app --reload
+# Or using the root backward-compatible wrapper:
+uvicorn main:app --reload
 
-**2. Run the backend API:**
-
-```bash
+# Option B: From the backend folder
+cd backend
 uvicorn main:app --reload
 # API available at http://localhost:8000, interactive docs at /docs
 ```
 
-**3. Run the frontend (separate terminal):**
+**2. Run the frontend (separate terminal):**
 
 ```bash
 cd frontend
@@ -155,32 +156,51 @@ npm run dev
 # App available at http://localhost:3000
 ```
 
-**4. Run the evaluation suite:**
+**3. Run offline tests:**
 
 ```bash
-python evaluate.py
+python backend/test_backend.py
+# or: cd backend && python test_backend.py
+```
+
+**4. Data pipeline & evaluation (BBC corpus pipeline):**
+
+```bash
+python backend/ingest.py
+python backend/evaluate.py
 ```
 
 ## Project Structure
 
 ```
 .
-├── main.py              # FastAPI app — /search, /ask, /conversations endpoints
-├── ingest.py             # Data pipeline: CSV -> chunk -> embed -> Qdrant
-├── config.py             # Centralized settings, loaded from .env
-├── db.py                 # SQLite persistence layer (conversations/messages)
-├── evaluate.py            # Golden-set evaluation (Recall@k, MRR, Precision@k)
-├── label_helper.py        # Manual ground-truth labeling tool for the golden set
-├── requirements.txt
-├── .env.example
+├── backend/
+│   ├── main.py              # FastAPI app — /search, /ask, /conversations endpoints
+│   ├── config.py            # Centralized settings, loaded from .env
+│   ├── db.py                # SQLite persistence layer (conversations/messages)
+│   ├── search.py            # Web search adapter (Tavily)
+│   ├── rate_limit.py        # Quota protection & rate limiting (Redis)
+│   ├── test_backend.py      # Offline test suite
+│   ├── ingest.py            # Data pipeline: CSV -> chunk -> embed -> Qdrant
+│   ├── evaluate.py          # Golden-set evaluation (Recall@k, MRR, Precision@k)
+│   ├── label_helper.py      # Manual ground-truth labeling tool
+│   ├── setup.py             # BBC dataset downloader
+│   ├── requirements.txt     # Backend dependencies
+│   ├── requirements-dev.txt # Development dependencies
+│   ├── chat_history.db      # SQLite database
+│   └── data/                # Dataset & sampling scripts
 ├── frontend/
 │   ├── app/
-│   │   ├── page.tsx       # Main chat UI
+│   │   ├── page.tsx         # Main chat UI
 │   │   ├── layout.tsx
 │   │   └── globals.css
 │   ├── config/env.ts
+│   ├── utils/
 │   └── package.json
-└── data/                  # BBC News CSV (not committed — see Data section)
+├── main.py                  # Root backward-compatible ASGI entry point
+├── requirements.txt         # Root requirements pointer (-r backend/requirements.txt)
+├── README.md
+└── .gitignore
 ```
 
 ## Data & Evaluation

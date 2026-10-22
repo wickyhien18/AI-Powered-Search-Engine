@@ -4,10 +4,17 @@ This file knows nothing about search or LLMs; it is a plain read/write layer.
 """
 
 import json
+import os
+from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
 
-DB_PATH = "chat_history.db"
+_BACKEND_DIR = Path(__file__).resolve().parent
+_DEFAULT_DB = _BACKEND_DIR / "chat_history.db"
+if not _DEFAULT_DB.exists() and (_BACKEND_DIR.parent / "chat_history.db").exists():
+    _DEFAULT_DB = _BACKEND_DIR.parent / "chat_history.db"
+
+DB_PATH = os.getenv("DB_PATH", str(_DEFAULT_DB))
 
 
 def get_connection() -> sqlite3.Connection:

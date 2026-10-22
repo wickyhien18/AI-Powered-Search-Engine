@@ -3,10 +3,20 @@ config.py - Single source of truth for shared settings, loaded from .env.
 """
 
 import os
+from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
-load_dotenv()
+# Search for .env in current directory, backend directory, or project root
+_env_path = find_dotenv(usecwd=True)
+if not _env_path:
+    _this_dir = Path(__file__).resolve().parent
+    for _candidate in [_this_dir / ".env", _this_dir.parent / ".env"]:
+        if _candidate.exists():
+            _env_path = str(_candidate)
+            break
+
+load_dotenv(dotenv_path=_env_path)
 
 # --- Web search (Tavily) ---
 # Get a free key at https://tavily.com

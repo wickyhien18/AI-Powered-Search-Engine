@@ -4,6 +4,7 @@ cho GOLDEN_SET. Chạy: python sample_for_labeling.py [--per-category N] [--seed
 """
 
 import argparse
+from pathlib import Path
 import pandas as pd
 
 CATEGORIES = ["business", "entertainment", "politics", "sport", "tech"]
@@ -11,8 +12,9 @@ SNIPPET_LEN = 220  # số ký tự đầu in ra để đọc nhanh
 
 
 def main():
+    default_csv = str(Path(__file__).resolve().parent / "tfidf_dataset.csv")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--csv", default="tfidf_dataset.csv")
+    parser.add_argument("--csv", default=default_csv)
     parser.add_argument("--per-category", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()

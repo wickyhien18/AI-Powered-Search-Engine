@@ -1,4 +1,11 @@
+import sys
+from pathlib import Path
 from collections import defaultdict
+
+# Add backend directory to sys.path so direct imports work regardless of working directory
+_backend_dir = str(Path(__file__).resolve().parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
