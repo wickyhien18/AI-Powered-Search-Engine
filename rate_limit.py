@@ -161,7 +161,9 @@ def enforce_rate_limit(request: Request) -> None:
 
     ip = get_client_ip(request, TRUSTED_PROXY_HOPS)
     if RATE_LIMIT_DEBUG:
-        logger.info(
+        # WARNING level on purpose: uvicorn does not configure the root logger,
+        # so INFO lines from this module would never show up in the logs.
+        logger.warning(
             "rate-limit ip=%s x-forwarded-for=%r client.host=%r",
             ip,
             request.headers.get("x-forwarded-for"),

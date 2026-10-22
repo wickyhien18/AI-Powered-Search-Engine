@@ -199,6 +199,102 @@ body {
   color: #d9724a;
 }
 
+/* Markdown inside an answer */
+.turn-assistant .content p {
+  margin: 0 0 0.8em;
+}
+
+.turn-assistant .content p:last-child {
+  margin-bottom: 0;
+}
+
+.turn-assistant .content ul,
+.turn-assistant .content ol {
+  margin: 0 0 0.8em;
+  padding-left: 1.4em;
+}
+
+.turn-assistant .content li {
+  margin-bottom: 0.3em;
+}
+
+.turn-assistant .content strong {
+  font-weight: 600;
+}
+
+/* Clickable [n] markers */
+.citation {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.75em;
+  line-height: 0;
+  vertical-align: super;
+  margin: 0 1px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.citation:hover {
+  text-decoration: underline;
+}
+
+.answer-link {
+  color: var(--accent);
+}
+
+/* Source list */
+.source-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.source-item {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  border-top: 1px solid var(--rule);
+  padding: 8px 0;
+  font-size: calc(13px * var(--font-scale));
+}
+
+.source-number {
+  flex-shrink: 0;
+  width: 1.5em;
+  color: var(--accent);
+}
+
+.source-item a {
+  color: var(--text);
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.source-item a:hover {
+  color: var(--accent);
+}
+
+.source-domain {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+/* Error banner: shown above the input bar, whatever the chat area contains */
+.error-banner {
+  max-width: 680px;
+  width: calc(100% - 48px);
+  margin: 0 auto 12px;
+  padding: 10px 14px;
+  border: 1px solid #d9724a;
+  border-radius: 6px;
+  font-size: calc(13.5px * var(--font-scale));
+  color: #d9724a;
+}
+
+.input-inner button {
+  white-space: nowrap;
+}
+
 .input-bar {
   border-top: 1px solid var(--rule);
   background: var(--bg);
