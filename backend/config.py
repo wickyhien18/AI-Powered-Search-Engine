@@ -61,7 +61,7 @@ CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:3000,https://ai-powered-search-engine-rosy.vercel.app",
+        "http://localhost:3000",
     ).split(",")
     if origin.strip()
 ]

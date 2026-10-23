@@ -6,3 +6,5 @@ langchain-core
 langchain-groq
 tavily-python
 redis
+fakeredis[lua]
+httpx
