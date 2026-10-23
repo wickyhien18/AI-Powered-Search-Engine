@@ -2,10 +2,9 @@
 
 > A Perplexity-style answer engine: your question goes to live web search, an LLM writes the answer from the numbered sources, and every claim carries a clickable `[n]` citation that maps to a source URL. It started as a hybrid-retrieval RAG system over the BBC News archive and was rebuilt around web search as a hands-on AI Engineering portfolio project.
 
-[![tests](https://github.com/wickyhien18/AI-Powered-Search-Engine/actions/workflows/tests.yml/badge.svg)](https://github.com/wickyhien18/AI-Powered-Search-Engine/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-**Live demo:** [AI-Powered Search Engine](https://ai-powered-search-engine-rosy.vercel.app) (see [Status](#status) for what the live demo currently shows)
+**Live demo:** [AI-Powered Search Engine](https://ai-powered-search-engine-18bt.vercel.app/) (see [Status](#status) for what the live demo currently shows)
 
 ---
 
