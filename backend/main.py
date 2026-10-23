@@ -189,7 +189,7 @@ Answer (with [n] citations after each claim):"""
     return response.content
 
 
-@app.get("/health")
+@app.route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
 
