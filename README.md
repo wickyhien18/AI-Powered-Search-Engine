@@ -4,7 +4,7 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-**Live demo:** [AI-Powered Search Engine](https://ai-powered-search-engine-18bt.vercel.app/) (see [Status](#status) for what the live demo currently shows)
+**Live demo:** [AI-Powered Search Engine](https://ai-powered-search-engine-18bt.vercel.app/)
 
 ---
 
@@ -227,7 +227,7 @@ Errors: `429` `{code: "rate_limited", limit, retry_after, message}` with a `Retr
 
 - **Dataset:** [BBC Articles Cleaned](https://www.kaggle.com/datasets/dimasmunoz/bbc-articles-cleaned) (Kaggle): 2,225 articles, 5 categories (business, entertainment, politics, sport, tech)
 - **Preprocessing:** text is already lowercased/stripped of punctuation in the source dataset; chunked with `RecursiveCharacterTextSplitter` (`chunk_size=500`, `chunk_overlap=50`)
-- **Evaluation methodology:** a hand-labeled golden set (queries with manually verified correct `article_id`s, grouped into `proper_noun` / `paraphrase` / `general` categories) is used to compute Recall@5, MRR, and Precision@5 for dense-only, BM25-only and hybrid retrieval
+- **Evaluation methodology:** a hand-labeled golden set (queries with manually verified correct `article_id`s, grouped into `proper_noun` / `paraphrase` / `general` categories) is used to compute Recall@5, MRR, and Precision@5 for dense-only and hybrid retrieval
 
 **Confirmed result (initial 2-query comparison):**
 
@@ -236,11 +236,11 @@ Errors: `429` `{code: "rate_limited", limit, retry_after, message}` with a `Retr
 | Dense-only              | 1.00     | 1.000 | 0.80        |
 | Hybrid (dense + sparse) | 1.00     | 1.000 | 0.80        |
 
-Aggregate scores were tied, but per-query results were not: hybrid retrieval scored noticeably higher on a proper-noun query (an artist's surname), the case hybrid search is specifically meant to help with, while dense-only scored higher on a general semantic query. **The honest takeaway: hybrid search is not a universal improvement over dense-only on this dataset. It helps most on exact-term/proper-noun queries, and a larger, category-balanced golden set is needed before drawing a confident overall conclusion.** The 40-query results are not reported here yet.
+Aggregate scores were tied, but per-query results were not: hybrid retrieval scored noticeably higher on a proper-noun query (an artist's surname), the case hybrid search is specifically meant to help with, while dense-only scored higher on a general semantic query. **The honest takeaway: hybrid search is not a universal improvement over dense-only on this dataset. It helps most on exact-term/proper-noun queries, and a larger, category-balanced golden set is needed before drawing a confident overall conclusion.**
 
 ### v2: web-grounded answers
 
-- **Relevance cutoff from data.** Over 82 measured search results, irrelevant pages scored at most 0.0589 and relevant ones at least 0.3233, with nothing in between, so the cutoff is 0.20. A score measures how well a page matches the query text, not the user's intent: ambiguous queries such as `first` or `tell me more about it` return pages scoring 0.39-0.76, so the cutoff cannot catch them. Query rewriting quality matters more than the threshold.
+- **Relevance cutoff from data.** Over 82 measured search results, keyword-matching junk pages scored at most 0.0589 and relevant ones at least 0.3233, with nothing in between, so the cutoff is 0.20. A score measures how well a page matches the query text, not the user's intent: ambiguous queries such as `first` or `tell me more about it` return pages scoring 0.39-0.76, so the cutoff cannot catch them. Query rewriting quality matters more than the threshold.
 - **Answers audited by hand.** There is no automated answer-quality metric yet. Answers were checked against their cited snippets, which surfaced the failure classes listed under [Known Limitations](#known-limitations) and led to the rules in the answer prompt (cite only the source that states a claim, report disagreeing values, keep dates and hedging words, no generalizing from examples).
 - **Cost awareness.** Measured: every `/ask` or `/search` costs one Tavily credit, independent of `top_k`; the free tier has 1,000 credits per month, so the default global cap of 30 requests per UTC day (930 per month) stays under it.
 
